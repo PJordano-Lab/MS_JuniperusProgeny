@@ -573,7 +573,7 @@ ggarrange(p3_seedrain,p2_seedrain,p1_seedrain,ncol = 3, common.legend = TRUE, le
 ```
 Spatial distribution of dispersed seeds per frugivore per stand
 ```{r Patterns of seed rain across AREAS-MH-FRUGIVORES}
-#Erithacus rubecola
+#Erithacus rubecula
 dataset_B_COL_ERUB<- filter(dataset_B_COL, disperser =="Erithacus rubecula")
 dataset_B_OJI_ERUB<- filter(dataset_B_OJI, disperser =="Erithacus rubecula")
 dataset_B_MAR_ERUB<- filter(dataset_B_MAR, disperser =="Erithacus rubecula")
@@ -592,7 +592,7 @@ p7<-ggplot() +
   axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_OJI_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
 p8<-ggplot() +
   geom_point( data=dataset_B_MAR_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
-  theme_light()+ ggtitle("Erithacus rubecola") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
+  theme_light()+ ggtitle("Erithacus rubecula") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
   axis.text.x = element_blank(),
   axis.text.y = element_blank(),
   axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_MAR_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
@@ -1472,7 +1472,7 @@ length(rela_data_CELA_scat$seed_A)
 
 #Creating final dataframe within scat relatedness
 
-names<-c("Erithacus rubecola", "Turdus philomelos","Turdus merula","Vulpes vulpes","Sylvia atricapilla","Chloris chloris" , "Turdus torquatus","Cyanopica cyanus", "Cervus elaphus" )
+names<-c("Erithacus rubecula", "Turdus philomelos","Turdus merula","Vulpes vulpes","Sylvia atricapilla","Chloris chloris" , "Turdus torquatus","Cyanopica cyanus", "Cervus elaphus" )
 
 mean_rela_within_scat <- c(mean_scat_ERUB,mean_scat_TPHI,mean_scat_TMER,mean_scat_VVUL,mean_scat_SATR, mean_scat_CCHL,mean_scat_TTOR,mean_scat_CCYA,mean_scat_CELA)
 
@@ -1715,7 +1715,7 @@ data_among_trap
 relatedness_results<-merge(data_within_scat,data_within_trap)
 relatedness_results<-merge(relatedness_results, data_among_trap)
 relatedness_results<-as.data.frame(relatedness_results)
-relatedness_results<-relatedness_results %>% dplyr::filter(disperser %in% c("Erithacus rubecola","Turdus merula", "Turdus philomelos", "Vulpes vulpes"))
+relatedness_results<-relatedness_results %>% dplyr::filter(disperser %in% c("Erithacus rubecula","Turdus merula", "Turdus philomelos", "Vulpes vulpes"))
 relatedness_results
 ```
 # Until now i known maternal richness and relatedness per deposition site, i will estimate now the maternal redundancy (uPMI) based on Grivet et al (2005).
