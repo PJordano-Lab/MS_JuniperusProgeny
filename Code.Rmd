@@ -1,0 +1,2186 @@
+---
+title: "Ms_Juniperus_Progeny_Code"
+author: "Jorge"
+date: "-"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+library(allelematch)
+library(readr)
+library(tibble)
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(reshape2)
+library(ggpubr)
+library(knitr)
+library(mapproj)
+library(sf)
+library(RColorBrewer)
+library(janitor)
+library(stringr)
+library(tidyr)
+library(plyr)
+library(plotrix)
+library(plotly)
+library(ggridges)
+library(spatstat)
+library(modEvA)
+library(glmmTMB)
+library(DHARMa)
+library(sjPlot)
+library(effects)
+library(TukeyC)
+library(iNEXT)
+```
+
+# I load the database with seeds and genotyped plants to group them in "genetic profiles". This dataset contains the multilocus genotypes of all dispersed seeds plus 105 samples corresponding to mother trees to facilitate progeny assignments. The same 12 polymorphic markers were used for the seed genotype (seed endocarp) and for the mother plant genotype (leaf tissue). The data of the mother plants are useful especially in the case of seeds found under focal deposition sites and to consider the closest junipers neighborhood.
+
+```{r data loading}
+seeds_trees <- read.csv("seeds_trees.csv", sep=";")
+```
+
+# Prepare a dataset for use with allelematch
+
+```{r data preparation}
+am_seeds_trees <- amDataset(seeds_trees, indexColumn="sampled", ignoreColumn ="knownPopulation", missingCode="0") # Creating a `amDataset´ object
+my_allele_freq<-amAlleleFreq(am_seeds_trees) #Determine allele frequencies
+
+# my_allele_freq #Allele frequencies VALUES
+```
+
+#Determine optimal parameter values for the identification of unique "genetic profiles".
+
+```{r Parameter estimation, include=FALSE}
+amUniqueProfile(am_seeds_trees, doPlot=TRUE)
+# Optimum alleleMismatch = 3
+# Allelic diversity = 7.8
+```
+
+# Identification of unique "genetic profiles" and results extraction
+
+```{r Identification of unique genotypes}
+unique_seeds_trees <- amUnique(am_seeds_trees, alleleMismatch=2) # I set a conservative allele Mismatch of 2 for `group´ assignation
+summary(unique_seeds_trees, html =TRUE)  # .html generation for results visualization
+#summary(unique_seeds_trees, csv = "seeds_trees_groups_2_mismatch.csv") # .csv generation for results save
+```
+
+This is the end of the computed genetic profile assignment. These results are reviewed and resequenced. Once obtained and named the genetic profiles to which each seed belongs, they will be manually entered into a new dataset together with the seed origin traits (stand-microhabitat-frugivore-deposition site, etc) for further analysis. This dataset is named full_datast.csv in the GitHub repository
+
+#I load a new dataset with all the information of each seed, in this dataset the trees do not appear anymore.
+
+```{r New data input and cleaning}
+dataset <- read_delim("full_dataset.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE) # Loading dataset
+dataset<-tibble::column_to_rownames(dataset, var = "seed_code") #Column to row names
+#names(dataset)
+dataset<-dataset[,c(25:45)] # I delate LOCI data
+#names(dataset)
+dataset<-dataset[,-c(6,7,8,9,10,11,12,13,15,16,17,18,19,21)] # I remove lab notes and unsuefull data
+#names(dataset)
+dataset <- dataset %>% drop_na(ind) # I remove unlocalised V.vulpes sample :(. I genotyped 25 seeds from a fox sample (labcode = 3041, Stand = SABOJI, Microhabitat = OA, Disperser = V. vulpes, Deposition site = UNKNOWN), and I don't know where I collected it so I have to eliminate it from the analysis. Finally, we will have 1000 seeds available for analysis. 
+
+# Colum type modifications
+dataset<-as.data.frame(dataset) # Creata a data frame object
+dataset$area<-as.factor(dataset$area) # Area = Stand; SABMAR = MATURE STAND, SABOJI = INTERMEDIATE STAND & SABCOL = COLONIZATION STAND
+dataset$microhabitat<-as.factor(dataset$microhabitat) # Microhabitat; PP = Under Pinus pinea, JP = Under Juniperus phoenicea, FF = Under other fleshy fruited species, NF = Under Non-Fleshy fruited species, OA = Open area. 
+dataset$ind<-as.factor(dataset$ind) # Deposition site name
+dataset$labcode<-as.factor(dataset$labcode) # Sample (scat) code
+dataset$date<-as.Date(dataset$date) # Sample collection date
+dataset$disperser<-as.factor(dataset$disperser) # Frugivore
+dataset$geno_profile<-as.factor(dataset$geno_profile) # Geno profile as a factor.
+
+#Area order fixing
+dataset$area <- factor(dataset$area, levels = c("SABCOL", "SABOJI", "SABMAR")) 
+dataset$microhabitat <- factor(dataset$microhabitat, levels = c("PP", "JP", "FF","NF","OA")) 
+```
+
+# General information to seeds dataset
+```{r}
+n_distinct(dataset$ind) # Number of focal seed-traps (Frugivore identification and seed-endocarp genotyping)
+n_distinct(dataset$geno_profile) # Number of different contributing mothers
+n_distinct(dataset$labcode) # Number of feces
+```
+
+#Patterns of seed rain across AREAS-MH-Frugivores:
+
+```{r Patterns of seed rain across AREAS-MH-FRUGIVORES-A}
+# Creating datasets for general questions about the distribution of seeds and maternal progenies in the seed rain. I used this results in Table 1.
+dataset_A  <-dataset %>% group_by(disperser,area, microhabitat) %>% dplyr::summarise(n_seeds = n()) # Summary of dispersed seeds at each level
+dataset_AA <-dataset %>% group_by(disperser,area) %>% dplyr::summarise(n_seeds = n()) # Summary of dispersed seeds at disperser and area levels
+dataset_AAA<-dataset %>% group_by(area) %>% dplyr::summarise(Number_of_seeds = n()) # Summary of dispersed seeds at stand level
+dataset_AAAA<-dataset %>% group_by(labcode,disperser) %>% dplyr::summarise(n_seeds = n()) # Summary of dispersed seeds at scat and disperser level
+dataset_AAAA<-dataset_AAAA %>% group_by(disperser) %>% dplyr:: summarise(n_seeds_per_feace = sd(n_seeds)) # Standard deviation for Nº seeds per face per frugivore
+dataset_CACA<-dataset %>% group_by(disperser,labcode) %>% dplyr::summarise(n_mothers = n_distinct(geno_profile)) # Summary for frugivore and scat at maternal level
+dataset_CACA<-dataset_CACA %>% group_by(disperser) %>% dplyr:: summarise(n_mums_per_feace = sd(n_mothers)) #Standard deviation for Nº progenies per scat per frugivore
+dataset_CACAs<-dataset %>% group_by(ind) %>% dplyr::summarise(n_seeds = n()) # Summary at deposition site level of the numnber of seeds
+dataset_ss <-dataset %>% group_by(microhabitat, ind) %>% dplyr::summarise(n_seeds = n()) # Summary at microhabitat and deposition site level
+dataset_AAAAA<-dataset %>% group_by(microhabitat) %>% dplyr::summarise(Number_of_seeds = n()) # Summary at microhabitat level
+dataset_AAAAAAAA<-dataset %>% group_by(ind, disperser, microhabitat) %>% dplyr::summarise(n_seeds = n()) # Summary at site, disperser and microhabitat levels
+
+# Ordering levels
+dataset_A$disperser<-   factor(dataset_A$disperser, levels = rev(c("Turdus philomelos", "Erithacus rubecula", "Turdus merula","Vulpes vulpes","Chloris chloris","Cervus elaphus","Sylvia atricapilla","Turdus torquatus","Turdus iliacus","Cyanopica cyanus")))
+dataset_AA$disperser<-   factor(dataset_AA$disperser, levels = rev(c("Turdus philomelos", "Erithacus rubecula", "Turdus merula","Vulpes vulpes","Chloris chloris","Cervus elaphus","Sylvia atricapilla","Turdus torquatus","Turdus iliacus","Cyanopica cyanus")))
+dataset_AAAAAAAA$disperser<-   factor(dataset_AAAAAAAA$disperser, levels = rev(c("Turdus philomelos", "Erithacus rubecula", "Turdus merula","Vulpes vulpes","Chloris chloris","Cervus elaphus","Sylvia atricapilla","Turdus torquatus","Turdus iliacus","Cyanopica cyanus")))
+dataset_A$microhabitat<-   factor(dataset_A$microhabitat, levels = rev(c("PP", "JP", "FF","NF","OA")))
+dataset_AAAAAAAA$microhabitat<-   factor(dataset_AAAAAAAA$microhabitat, levels = rev(c("PP", "JP", "FF","NF","OA")))
+dataset_AA$area<- factor(dataset_AA$area, levels = rev(c("SABMAR", "SABOJI", "SABCOL")))
+dataset_AAAAAAAA$ind<-   factor(dataset_AAAAAAAA$ind, levels = rev(c("M_PP_A" , "M_PP_K" , "M_PP_M" , "M_PP_N", "O_PP_B" , "O_PP_E",  "O_PP_G"  ,"O_PP_L","C_PP_C" , "C_PP_E", "C_PP_I" , "C_PP_L","M058",    "M381"  ,  "M457"   , "M648","O023"   , "O463"  ,  "O488"   , "O626" , "C014"  ,  "C075"  ,  "C111" ,   "C162","M_FF_C" , "M_FF_F" , "M_FF_I" , "M_FF_K" ,"O_FF_A" , "O_FF_J" , "O_FF_L" , "O_FF_O","C_FF_A"  ,"C_FF_D" , "C_FF_G"  ,"C_FF_I","M_NF_A" , "M_NF_B"  ,"M_NF_E" , "M_NF_I","O_NF_A"  ,"O_NF_F" , "O_NF_H",  "O_NF_L","C_NF_F" , "C_NF_G"  ,"C_NF_J"  ,"C_NF_K", "MT5M10" , "MT5M19" , "MT5M23" , "MT5M24" , "MT6M21" , "MT7M10" , "MT7M7"  , "MT8M39" , "MT8M41" , "MT8M46", "OT14M11" ,"OT14M16", "OT14M19" ,"OT14M20" ,"OT14M21", "OT14M23" ,"OT14M3" ,"OT14M4" , "OT14M9"  ,"OT15M1" , "OT15M13", "OT15M14" ,"OT15M16", "OT15M17" ,"OT15M22" ,"OT15M23" ,"OT15M3","OT15M4" , "OT15M5",  "OT15M6" , "OT15M8"  ,"OT15M9","CT1M13" , "CT1M23",  "CT1M27" , "CT1M35" ,"CT1M4" ,  "CT1M44" , "CT1M46"  ,"CT1M49",  "CT2M12" , "CT2M14",  "CT2M41" , "CT2M43"  ,"CT2M49" , "CT3M1" ,"CT3M22" , "CT3M24" , "CT3M27" , "CT3M28" , "CT3M32" , "CT3M33" , "CT3M42" , "CT3M47" , "CT3M49" , "CT3M7",  "CT3M8")))
+
+#I create a column that includes information on the number of sampled deposition sites  in each microhabitat in the study to weight and make the frugivore preference data comparable. All microhabitat have 12 trays except OA which has more. 
+
+study_traps = c (12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,57,12,12,12,12,12,12,12,12,12,12,12,12,12,12,12,57,12,12,12,12,12,12,12,12,57,12,12,12,12,57,12,12,12,12,57,12,12,12,12,12,12)
+dataset_A_weighted<-cbind(dataset_A,study_traps)
+colnames(dataset_A_weighted)[5] <-"seed_traps"
+seeds_weighted<-dataset_A_weighted$n_seeds/dataset_A_weighted$seed_traps
+dataset_A_weighted<-cbind(dataset_A_weighted,seeds_weighted)
+colnames(dataset_A_weighted)[6] <-"seeds_weighted"
+
+# Frugivore X AREA plot
+p1<-ggplot(dataset_AA, aes(fill=area, y=n_seeds, x=disperser)) + 
+    geom_bar(position="fill", stat="identity",alpha = 0.8)+ 
+  labs( x = "Area", y = "Proportional contribution to seed rain") + coord_flip()+ 
+  scale_fill_manual(dataset_A$area, values = c("SABCOL"="#ccd5ae", "SABOJI"="#588157", "SABMAR"="#344e41"))+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.x = element_text(face="bold", colour="black", size = 12),
+        axis.title.y = element_text(face="bold", colour="black", size = 12),
+        legend.title = element_text(face="bold", size = 10),  
+        strip.background = element_rect(fill="lightgreen", colour="black", size=1),
+        strip.text = element_text(face="bold", size=rel(1.2)))
+
+# Frugivore x MH plot
+p2<-ggplot(dataset_A_weighted, aes(fill=microhabitat, y=seeds_weighted, x=disperser))  +
+    geom_bar(position="fill", stat="identity",alpha = 0.8)+ 
+  labs( x = "Microhabitat", y = "Proportional contribution to seed rain") + coord_flip() + 
+  scale_fill_manual(dataset_A$microhabitat, values = c("JP" = "#8ac926", "FF" = "#ff595e", "OA" = "#1982c4", "PP" = "#6a4c93","NF"="#ffca3a")) +
+  theme(plot.title = element_text(hjust = 0.5), 
+        axis.title.x = element_text(face="bold", colour="black", size = 12),
+        axis.title.y = element_text(face="bold", colour="black", size = 12),
+        legend.title = element_text(face="bold", size = 10),  
+        strip.background = element_rect(fill="lightgreen", colour="black", size=1),
+        strip.text = element_text(face="bold", size=rel(1.2)))
+
+# Frugivore x Deposition site plot
+p3<-ggplot(dataset_AAAAAAAA, aes(fill=disperser, y=n_seeds, x=ind)) + 
+    geom_bar(position="fill", stat="identity",alpha = 0.8)+ 
+  labs( x = "Deposition site", y = "Proportional contribution to seed rain") + coord_flip()+ 
+  scale_fill_manual(dataset_A$disperser, values = c("Cervus elaphus" = "#7F7F7F", "Chloris chloris"= "#2CA02C","Cyanopica cyanus" = "#17BECF" ,"Erithacus rubecula" = "#FF7F0E","Sylvia atricapilla" = "#E377C2", "Turdus iliacus" = "#9467BD","Turdus merula" = "#1F77B4","Turdus philomelos" = "#BCBD22","Turdus torquatus"= "#8C564B","Vulpes vulpes"="#D62728"))+
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.x = element_text(face="bold", colour="black", size = 12),
+        axis.title.y = element_text(face="bold", colour="black", size = 12),
+        legend.title = element_text(face="bold", size = 10),  
+        strip.background = element_rect(fill="lightgreen", colour="black", size=1),
+        strip.text = element_text(face="bold", size=rel(1.2)))
+
+ggarrange(p1,p2,p3 ,ncol =1,nrow = 3,
+          common.legend = FALSE, legend = "bottom",widths = c(1, 1),heights =c(3,3)) # Figure creation
+```
+
+#Chi 2 test for independence of AREA by frugivores
+To know if frugivores disperse seeds independently between microhabitats and between stands (i.e., to test if there are preferences or if they are avoiding any area or microhabitat). We do a xhi2 test.
+
+It is important to emphasize that to do this test, we have based it on the number of trays to which seeds can arrive and are arriving, as a ratio. In this way, we avoid biases due to the amount of seeds contributed by each frugivore per dispersal event, and also the imbalance with respect to the number of OA sites.
+
+```{r}
+# Preparingx2 data AT STAND LEVEL:
+
+#Tur phi
+dataset_X2  <-dataset %>% group_by(area, disperser) %>% dplyr::summarise(n_distinct(ind)) # Summarize per area and disperser
+dataset
+n_sites_area<- dataset%>%group_by(area) %>% dplyr::summarise(n_distinct(ind))
+dataset_X2_TPHI<- filter(dataset_X2, disperser == "Turdus philomelos")  %>% cbind(n_sites_area$`n_distinct(ind)`)
+colnames(dataset_X2_TPHI)[4] <-"seed_traps"
+dataset_X2_TPHI<-cbind(dataset_X2_TPHI,(dataset_X2_TPHI$`n_distinct(ind)` / dataset_X2_TPHI$seed_traps)*100  )
+colnames(dataset_X2_TPHI)[5] <-"proportion"
+
+#Erithacus 
+dataset_X2_ERUB<- filter(dataset_X2, disperser == "Erithacus rubecula")  %>% cbind(n_sites_area$`n_distinct(ind)`)
+colnames(dataset_X2_ERUB)[4] <-"seed_traps"
+dataset_X2_ERUB<-cbind(dataset_X2_ERUB,(dataset_X2_ERUB$`n_distinct(ind)` / dataset_X2_ERUB$seed_traps)*100  )
+colnames(dataset_X2_ERUB)[5] <-"proportion"
+
+#T.merula
+dataset_X2_TMER<- filter(dataset_X2, disperser == "Turdus merula")  %>% cbind(n_sites_area$`n_distinct(ind)`)
+colnames(dataset_X2_TMER)[4] <-"seed_traps"
+dataset_X2_TMER<-cbind(dataset_X2_TMER,(dataset_X2_TMER$`n_distinct(ind)` / dataset_X2_TMER$seed_traps)*100  )
+colnames(dataset_X2_TMER)[5] <-"proportion"
+
+#v.VULPES
+dataset_X2_V.vul<- filter(dataset_X2, disperser == "Vulpes vulpes")  %>% cbind(n_sites_area$`n_distinct(ind)`)
+colnames(dataset_X2_V.vul)[4] <-"seed_traps"
+dataset_X2_V.vul<-cbind(dataset_X2_V.vul,(dataset_X2_V.vul$`n_distinct(ind)` / dataset_X2_V.vul$seed_traps)*100  )
+colnames(dataset_X2_V.vul)[5] <-"proportion"
+
+#Chloris
+dataset_X2_CHL<- filter(dataset_X2, disperser == "Chloris chloris")  %>% cbind(n_sites_area$`n_distinct(ind)`)
+colnames(dataset_X2_CHL)[4] <-"seed_traps"
+dataset_X2_CHL<-cbind(dataset_X2_CHL,(dataset_X2_CHL$`n_distinct(ind)` / dataset_X2_CHL$seed_traps)*100  )
+colnames(dataset_X2_CHL)[5] <-"proportion"
+
+#Cervus
+dataset_X2_Cer<- filter(dataset_X2, disperser == "Cervus elaphus")
+dataset_X2_Cer<-as.data.frame(dataset_X2_Cer)
+# Add the new row
+
+dataset_X2_Cer [ nrow (dataset_X2_Cer) + 1,] = c ("SABOJI","Cervus elaphus", 0)
+
+dataset_X2_Cer [order(dataset_X2_Cer$area), ]
+
+dataset_X2_Cer<-cbind(dataset_X2_Cer,n_sites_area$`n_distinct(ind)` )
+
+colnames(dataset_X2_Cer)[4] <-"seed_traps"
+dataset_X2_Cer$`n_distinct(ind)`<-as.numeric(dataset_X2_Cer$`n_distinct(ind)`)
+
+dataset_X2_Cer<-cbind(dataset_X2_Cer,(dataset_X2_Cer$`n_distinct(ind)` / dataset_X2_Cer$seed_traps)*100  )
+colnames(dataset_X2_Cer)[5] <-"proportion"
+
+##Cyanopica
+dataset_X2_CYA<- filter(dataset_X2, disperser == "Cyanopica cyanus")
+dataset_X2_CYA<-as.data.frame(dataset_X2_CYA)
+# Add the new row
+
+dataset_X2_CYA [ nrow (dataset_X2_CYA) + 1,] = c ("SABCOL","Cyanopica cyanus", 0)
+dataset_X2_CYA [ nrow (dataset_X2_CYA) + 1,] = c ("SABMAR","Cyanopica cyanus", 1)
+dataset_X2_CYA [ nrow (dataset_X2_CYA) + 1,] = c ("SABOJI","Cyanopica cyanus", 0)
+dataset_X2_CYA<-dataset_X2_CYA[-1,]
+
+
+dataset_X2_CYA<-cbind(dataset_X2_CYA,n_sites_area$`n_distinct(ind)` )
+colnames(dataset_X2_CYA)[4] <-"seed_traps"
+
+dataset_X2_CYA$`n_distinct(ind)`<-as.numeric(dataset_X2_CYA$`n_distinct(ind)`)
+
+dataset_X2_CYA<-cbind(dataset_X2_CYA,(dataset_X2_CYA$`n_distinct(ind)` / dataset_X2_CYA$seed_traps)*100  )
+colnames(dataset_X2_CYA)[5] <-"proportion"
+dataset_X2_CYA
+
+##Sylvia atricapilla
+dataset_X2_SYL<- filter(dataset_X2, disperser == "Sylvia atricapilla")
+dataset_X2_SYL<-as.data.frame(dataset_X2_SYL)
+# Add the new row
+
+dataset_X2_SYL [ nrow (dataset_X2_SYL) + 1,] = c ("SABCOL","Sylvia atricapilla", 0)
+dataset_X2_SYL [ nrow (dataset_X2_SYL) + 1,] = c ("SABMAR","Sylvia atricapilla", 0)
+dataset_X2_SYL [ nrow (dataset_X2_SYL) + 1,] = c ("SABOJI","Sylvia atricapilla", 1)
+dataset_X2_SYL<-dataset_X2_SYL[-1,]
+
+
+dataset_X2_SYL<-cbind(dataset_X2_SYL,n_sites_area$`n_distinct(ind)` )
+colnames(dataset_X2_SYL)[4] <-"seed_traps"
+
+dataset_X2_SYL$`n_distinct(ind)`<-as.numeric(dataset_X2_SYL$`n_distinct(ind)`)
+
+dataset_X2_SYL<-cbind(dataset_X2_SYL,(dataset_X2_SYL$`n_distinct(ind)` / dataset_X2_SYL$seed_traps)*100  )
+colnames(dataset_X2_SYL)[5] <-"proportion"
+dataset_X2_SYL
+
+## Turdus iliacus
+dataset_X2_Tili<- filter(dataset_X2, disperser == "Turdus iliacus")
+dataset_X2_Tili<-as.data.frame(dataset_X2_Tili)
+# Add the new row
+
+dataset_X2_Tili [ nrow (dataset_X2_Tili) + 1,] = c ("SABCOL","Turdus iliacus", 0)
+dataset_X2_Tili [ nrow (dataset_X2_Tili) + 1,] = c ("SABMAR","Turdus iliacus", 0)
+dataset_X2_Tili [ nrow (dataset_X2_Tili) + 1,] = c ("SABOJI","Turdus iliacus", 3)
+dataset_X2_Tili<-dataset_X2_Tili[-1,]
+
+
+dataset_X2_Tili<-cbind(dataset_X2_Tili,n_sites_area$`n_distinct(ind)` )
+colnames(dataset_X2_Tili)[4] <-"seed_traps"
+
+dataset_X2_Tili$`n_distinct(ind)`<-as.numeric(dataset_X2_Tili$`n_distinct(ind)`)
+
+dataset_X2_Tili<-cbind(dataset_X2_Tili,(dataset_X2_Tili$`n_distinct(ind)` / dataset_X2_Tili$seed_traps)*100  )
+colnames(dataset_X2_Tili)[5] <-"proportion"
+dataset_X2_Tili
+
+## Turdus torquatus
+dataset_X2_Ttor<- filter(dataset_X2, disperser == "Turdus torquatus")
+dataset_X2_Ttor<-as.data.frame(dataset_X2_Ttor)
+# Add the new row
+
+dataset_X2_Ttor [ nrow (dataset_X2_Ttor) + 1,] = c ("SABCOL","Turdus torquatus", 0)
+dataset_X2_Ttor [ nrow (dataset_X2_Ttor) + 1,] = c ("SABMAR","Turdus torquatus", 1)
+dataset_X2_Ttor [ nrow (dataset_X2_Ttor) + 1,] = c ("SABOJI","Turdus torquatus", 0)
+dataset_X2_Ttor<-dataset_X2_Ttor[-1,]
+
+
+dataset_X2_Ttor<-cbind(dataset_X2_Ttor,n_sites_area$`n_distinct(ind)` )
+colnames(dataset_X2_Ttor)[4] <-"seed_traps"
+
+dataset_X2_Ttor$`n_distinct(ind)`<-as.numeric(dataset_X2_Ttor$`n_distinct(ind)`)
+
+dataset_X2_Ttor<-cbind(dataset_X2_Ttor,(dataset_X2_Ttor$`n_distinct(ind)` / dataset_X2_Ttor$seed_traps)*100  )
+colnames(dataset_X2_Ttor)[5] <-"proportion"
+dataset_X2_Ttor
+
+#I generate a dataset containing data about for each frugivore, the percentage of trays to which it disperses seeds in each stand. 
+X3<-matrix(c(round(dataset_X2_TPHI$proportion),round(dataset_X2_ERUB$proportion),round(dataset_X2_TMER$proportion),round(dataset_X2_V.vul$proportion),round(dataset_X2_CHL$proportion),round(dataset_X2_Cer$proportion),round(dataset_X2_SYL$proportion),round(dataset_X2_Ttor$proportion),round(dataset_X2_Tili$proportion),round(dataset_X2_CYA$proportion)), ncol = 3, byrow = TRUE )
+
+colnames (X3) <- c (" SABCOL ", " SABMAR ", " SABOJI ")
+rownames (X3) <- c (" Turdus_philomelos ", " Erithacus_rubecula ", "Turdus_merula","Vulpes_vulpes","Chloris_chloris","Cervus_elaphus","Sylvia_atricapilla","Turdus_torquatus","Turdus_iliacus","Cyanopica_cyanus")
+
+X3 <-as.table(X3) # The final object for X2 TESTS
+
+# Chi Square test for STAND prefferences of frugivores. 
+dt <- as.table(as.matrix(X3))
+chisq.test (X3)
+
+library("vcd")
+# plot just a subset of the table
+assoc(head(dt, 10),  xlab = "STAND", ylab = "FRUGIVORE", shade = TRUE, las=3)
+```
+
+#Chi 2 test for independence of MICROHABITAT by frugivores
+```{r}
+#Preparing data:
+
+dataset_X4  <-dataset %>% group_by(microhabitat, disperser) %>% dplyr::summarise(n_distinct(ind))
+n_sites_mh<- dataset%>%group_by(microhabitat) %>% dplyr::summarise(n_distinct(ind))
+
+#Tur phi
+dataset_X4_TPHI<- filter(dataset_X4, disperser == "Turdus philomelos")  %>% cbind(n_sites_mh$`n_distinct(ind)`)
+colnames(dataset_X4_TPHI)[4] <-"seed_traps"
+dataset_X4_TPHI<-cbind(dataset_X4_TPHI,round((dataset_X4_TPHI$`n_distinct(ind)` / dataset_X4_TPHI$seed_traps)*100, digits = 1))
+colnames(dataset_X4_TPHI)[5] <-"proportion"
+
+#Erithacus 
+dataset_X4_ERUB<- filter(dataset_X4, disperser == "Erithacus rubecula")  %>% cbind(n_sites_mh$`n_distinct(ind)`)
+colnames(dataset_X4_ERUB)[4] <-"seed_traps"
+dataset_X4_ERUB<-cbind(dataset_X4_ERUB,round((dataset_X4_ERUB$`n_distinct(ind)` / dataset_X4_ERUB$seed_traps)*100, digits = 1))
+colnames(dataset_X4_ERUB)[5] <-"proportion"
+
+#T.merula
+dataset_X4_TMER<- filter(dataset_X4, disperser == "Turdus merula")  %>% cbind(n_sites_mh$`n_distinct(ind)`)
+colnames(dataset_X4_TMER)[4] <-"seed_traps"
+dataset_X4_TMER<-cbind(dataset_X4_TMER,round((dataset_X4_TMER$`n_distinct(ind)` / dataset_X4_TMER$seed_traps)*100, digits = 1))
+colnames(dataset_X4_TMER)[5] <-"proportion"
+
+#v.VULPES
+dataset_X4_V.vul<- filter(dataset_X4, disperser == "Vulpes vulpes")
+dataset_X4_V.vul<-as.data.frame(dataset_X4_V.vul)
+dataset_X4_V.vul [ nrow (dataset_X4_V.vul) + 1,] = c ("NF","Vulpes vulpes", 0)
+dataset_X4_V.vul [ nrow (dataset_X4_V.vul) + 1,] = c ("OA","Vulpes vulpes", 0)
+dataset_X4_V.vul<-dataset_X4_V.vul [order(dataset_X4_V.vul$microhabitat), ]
+dataset_X4_V.vul<-cbind(dataset_X4_V.vul,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_V.vul)[4] <-"seed_traps"
+dataset_X4_V.vul$`n_distinct(ind)`<-as.numeric(dataset_X4_V.vul$`n_distinct(ind)`)
+dataset_X4_V.vul<-cbind(dataset_X4_V.vul,round((dataset_X4_V.vul$`n_distinct(ind)` / dataset_X4_V.vul$seed_traps)*100, digits = 1))
+colnames(dataset_X4_V.vul)[5] <-"proportion"
+
+#Chloris
+dataset_X4_CHL<- filter(dataset_X4, disperser == "Chloris chloris")
+dataset_X4_CHL<-as.data.frame(dataset_X4_CHL)
+dataset_X4_CHL [ nrow (dataset_X4_CHL) + 1,] = c ("NF","Chloris chloris", 0)
+dataset_X4_CHL [ nrow (dataset_X4_CHL) + 1,] = c ("OA","Chloris chloris", 0)
+dataset_X4_CHL<-dataset_X4_CHL [order(dataset_X4_CHL$microhabitat), ]
+dataset_X4_CHL<-cbind(dataset_X4_CHL,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_CHL)[4] <-"seed_traps"
+dataset_X4_CHL$`n_distinct(ind)`<-as.numeric(dataset_X4_CHL$`n_distinct(ind)`)
+dataset_X4_CHL<-cbind(dataset_X4_CHL,round((dataset_X4_CHL$`n_distinct(ind)` / dataset_X4_CHL$seed_traps)*100, digits = 1))
+colnames(dataset_X4_CHL)[5] <-"proportion"
+
+#Cervus elaphus
+dataset_X4_Cer<- filter(dataset_X4, disperser == "Cervus elaphus")
+dataset_X4_Cer<-as.data.frame(dataset_X4_Cer)
+dataset_X4_Cer [ nrow (dataset_X4_Cer) + 1,] = c ("NF","Cervus elaphus", 0)
+dataset_X4_Cer [ nrow (dataset_X4_Cer) + 1,] = c ("OA","Cervus elaphus", 0)
+dataset_X4_Cer [ nrow (dataset_X4_Cer) + 1,] = c ("JP","Cervus elaphus", 0)
+dataset_X4_Cer [ nrow (dataset_X4_Cer) + 1,] = c ("FF","Cervus elaphus", 0)
+dataset_X4_Cer<-dataset_X4_Cer [order(dataset_X4_Cer$microhabitat), ]
+dataset_X4_Cer<-cbind(dataset_X4_Cer,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_Cer)[4] <-"seed_traps"
+dataset_X4_Cer$`n_distinct(ind)`<-as.numeric(dataset_X4_Cer$`n_distinct(ind)`)
+dataset_X4_Cer<-cbind(dataset_X4_Cer,round((dataset_X4_Cer$`n_distinct(ind)` / dataset_X4_Cer$seed_traps)*100, digits = 1))
+colnames(dataset_X4_Cer)[5] <-"proportion"
+
+##Cyanopica
+dataset_X4_CYA<- filter(dataset_X4, disperser == "Cyanopica cyanus")
+dataset_X4_CYA<-as.data.frame(dataset_X4_CYA)
+dataset_X4_CYA [ nrow (dataset_X4_CYA) + 1,] = c ("NF","Cyanopica cyanus", 0)
+dataset_X4_CYA [ nrow (dataset_X4_CYA) + 1,] = c ("OA","Cyanopica cyanus", 0)
+dataset_X4_CYA [ nrow (dataset_X4_CYA) + 1,] = c ("JP","Cyanopica cyanus", 0)
+dataset_X4_CYA [ nrow (dataset_X4_CYA) + 1,] = c ("FF","Cyanopica cyanus", 0)
+dataset_X4_CYA<-dataset_X4_CYA [order(dataset_X4_CYA$microhabitat), ]
+dataset_X4_CYA<-cbind(dataset_X4_CYA,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_CYA)[4] <-"seed_traps"
+dataset_X4_CYA$`n_distinct(ind)`<-as.numeric(dataset_X4_CYA$`n_distinct(ind)`)
+dataset_X4_CYA<-cbind(dataset_X4_CYA,round((dataset_X4_CYA$`n_distinct(ind)` / dataset_X4_CYA$seed_traps)*100, digits = 1))
+colnames(dataset_X4_CYA)[5] <-"proportion"
+
+## Atricapilla
+dataset_X4_SYL<- filter(dataset_X4, disperser == "Sylvia atricapilla")
+dataset_X4_SYL<-as.data.frame(dataset_X4_SYL)
+dataset_X4_SYL [ nrow (dataset_X4_SYL) + 1,] = c ("NF","Sylvia atricapilla", 0)
+dataset_X4_SYL [ nrow (dataset_X4_SYL) + 1,] = c ("OA","Sylvia atricapilla", 0)
+dataset_X4_SYL [ nrow (dataset_X4_SYL) + 1,] = c ("JP","Sylvia atricapilla", 0)
+dataset_X4_SYL [ nrow (dataset_X4_SYL) + 1,] = c ("FF","Sylvia atricapilla", 0)
+dataset_X4_SYL<-dataset_X4_SYL [order(dataset_X4_SYL$microhabitat), ]
+dataset_X4_SYL<-cbind(dataset_X4_SYL,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_SYL)[4] <-"seed_traps"
+dataset_X4_SYL$`n_distinct(ind)`<-as.numeric(dataset_X4_SYL$`n_distinct(ind)`)
+dataset_X4_SYL<-cbind(dataset_X4_SYL,round((dataset_X4_SYL$`n_distinct(ind)` / dataset_X4_SYL$seed_traps)*100, digits = 1))
+colnames(dataset_X4_SYL)[5] <-"proportion"
+
+## Iliacus
+dataset_X4_Tili<- filter(dataset_X4, disperser == "Turdus iliacus")
+dataset_X4_Tili<-as.data.frame(dataset_X4_Tili)
+dataset_X4_Tili [ nrow (dataset_X4_Tili) + 1,] = c ("FF","Turdus iliacus", 0)
+dataset_X4_Tili [ nrow (dataset_X4_Tili) + 1,] = c ("OA","Turdus iliacus", 0)
+dataset_X4_Tili<-dataset_X4_Tili [order(dataset_X4_Tili$microhabitat), ]
+dataset_X4_Tili<-cbind(dataset_X4_Tili,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_Tili)[4] <-"seed_traps"
+dataset_X4_Tili$`n_distinct(ind)`<-as.numeric(dataset_X4_Tili$`n_distinct(ind)`)
+dataset_X4_Tili<-cbind(dataset_X4_Tili,round((dataset_X4_Tili$`n_distinct(ind)` / dataset_X4_Tili$seed_traps)*100, digits = 1))
+colnames(dataset_X4_Tili)[5] <-"proportion"
+
+##  Turdus torquatus
+dataset_X4_Ttor<- filter(dataset_X4, disperser == "Turdus torquatus")
+dataset_X4_Ttor<-as.data.frame(dataset_X4_Ttor)
+dataset_X4_Ttor [ nrow (dataset_X4_Ttor) + 1,] = c ("FF","Turdus torquatus", 0)
+dataset_X4_Ttor [ nrow (dataset_X4_Ttor) + 1,] = c ("OA","Turdus torquatus", 0)
+dataset_X4_Ttor [ nrow (dataset_X4_Ttor) + 1,] = c ("NF","Turdus torquatus", 0)
+dataset_X4_Ttor [ nrow (dataset_X4_Ttor) + 1,] = c ("JP","Turdus torquatus", 0)
+dataset_X4_Ttor<-dataset_X4_Ttor [order(dataset_X4_Ttor$microhabitat), ]
+dataset_X4_Ttor<-cbind(dataset_X4_Ttor,n_sites_mh$`n_distinct(ind)` )
+colnames(dataset_X4_Ttor)[4] <-"seed_traps"
+dataset_X4_Ttor$`n_distinct(ind)`<-as.numeric(dataset_X4_Ttor$`n_distinct(ind)`)
+dataset_X4_Ttor<-cbind(dataset_X4_Ttor,round((dataset_X4_Ttor$`n_distinct(ind)` / dataset_X4_Ttor$seed_traps)*100, digits = 1))
+colnames(dataset_X4_Ttor)[5] <-"proportion"
+
+# Collapsing data
+
+X4<-matrix(c((dataset_X4_TPHI$proportion),(dataset_X4_ERUB$proportion),(dataset_X4_TMER$proportion),(dataset_X4_V.vul$proportion),(dataset_X4_CHL$proportion),(dataset_X4_Cer$proportion),(dataset_X4_SYL$proportion),(dataset_X4_Ttor$proportion),(dataset_X4_Tili$proportion),(dataset_X4_CYA$proportion)), ncol = 5, byrow = TRUE )
+
+colnames (X4) <- c (" PP ", " JP ", " FF ","NF","OA")
+rownames (X4) <- c ( "Turdus_philomelos ", " Erithacus_rubecula ", "Turdus_merula","Vulpes_vulpes","Chloris_chloris","Cervus_elaphus","Sylvia_atricapilla","Turdus_torquatus","Turdus_iliacus","Cyanopica_cyanus")
+X4 <-as.table(X4)
+
+# Chi square test for microhabitat independence by frugivores
+dt4 <- as.table(as.matrix(X4))
+chisq.test (X4)
+
+library("graphics")
+mosaicplot(dt4, shade = TRUE, las=2,
+           main = "Microhabitats",rot_labels=c(20,90,0,70))
+assoc(head(dt4, 10), shade = TRUE, las=3)
+
+```
+
+
+
+#Spatial pattern of genotyped seeds across MICROHABITAT 
+# Not used in the manuscript!
+```{r Patterns of seed rain across AREAS-MH}
+coord <- read_delim("coord.csv", 
+    delim = ",", escape_double = FALSE, trim_ws = TRUE) #Loading locations dataset of focal deposition sites
+
+dataset<-dataset%>% left_join(coord) # merge coords with general dataset
+dataset_B  <-dataset %>% group_by(ind,area, disperser) %>% dplyr::summarise(n_seeds = n()) # Summarize by number of seeds
+dataset_B<-dataset_B%>% left_join(coord)
+dataset_B<-as.data.frame(dataset_B)
+
+#Filter by area
+dataset_B_COL<- filter(dataset_B, area =="SABCOL")
+dataset_B_OJI<- filter(dataset_B, area =="SABOJI")
+dataset_B_MAR<- filter(dataset_B, area =="SABMAR")
+
+col_mh <- c("JP" = "#a6d854", "FF" = "#e78ac3", "OA" = "#8da0cb", "PP" = "#fc8d62","NF"="#66c2a5") #Microhabitat colors
+
+
+p3<-ggplot() +
+  geom_point( data=dataset_B_COL, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.7) +
+  theme_linedraw()+ ggtitle("COL") + scale_colour_manual(values = col_mh)
+p4<-ggplot() +
+  geom_point( data=dataset_B_OJI, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.7) +
+  theme_linedraw()+ ggtitle("OJI")+ scale_colour_manual(values = col_mh)
+p5<-ggplot() +
+  geom_point( data=dataset_B_MAR, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.7) +
+  theme_linedraw()+ ggtitle("MAR")+ scale_colour_manual(values = col_mh)
+
+ggarrange(p5,p4,p3,ncol = 3, common.legend = TRUE, legend = "right",widths = 1,
+  heights = 0.2)
+```
+
+#  All the deposition sites
+
+```{r}
+#Loading locations dataset
+data_seedrain <- read_delim("seed_rain_raw.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE) # Loading data of seed rain (nº seeds per deposition site and nº seeds/m2)
+
+data_seedrain<-as.data.frame(data_seedrain)
+data_seedrain$area<-as.factor(data_seedrain$area)
+data_seedrain$mh<-as.factor(data_seedrain$mh)
+data_seedrain$ind<-as.factor(data_seedrain$ind)
+data_seedrain$random_drop<-as.factor(data_seedrain$random_drop)
+
+data_seedrain$seed_density_m2<-as.numeric(data_seedrain$seed_density_m2)
+data_seedrain<-filter(data_seedrain, random_drop == "no") #I randomly eliminate some Juniper focal plants to compare the same number of replicates per mh and stand (n =15)
+
+#Filter by area
+data_seedrain_COL<- filter(data_seedrain, area =="SABCOL")
+data_seedrain_OJI<- filter(data_seedrain, area =="SABOJI")
+data_seedrain_MAR<- filter(data_seedrain, area =="SABMAR")
+
+col_mh <- c("JP" = "#8ac926", "FF" = "#ff595e", "OA" = "#1982c4", "PP" = "#6a4c93","NF"="#ffca3a") #microhabitat color
+
+# I create a dataframe with focal deposition sites, which is the points where the founded seeds have been genotyped and frugivore-identifyied
+data_seedrain_COL_focals<- filter(data_seedrain_COL, focal_point =="YES")
+data_seedrain_OJI_focals<- filter(data_seedrain_OJI, focal_point =="YES")
+data_seedrain_MAR_focals<- filter(data_seedrain_MAR, focal_point =="YES")
+
+#data_seedrain_COL_fake<- data_seedrain_COL
+  #data_seedrain_COL_fake [ nrow (dataset_X5_Tto) + 1,] = c ("CT3M42",  "Turdus torquatus", 0,1)
+ # dataset_X5_Tto [ nrow (dataset_X5_Tto) + 1,] = c ("CT3M42",  "Turdus torquatus", 0,1)
+
+  p1_seedrain<-ggplot() +
+  geom_point( data=data_seedrain_COL, aes(x=x, y=y,size = seed_density_m2, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL") + scale_colour_manual(values = col_mh)+ scale_size(range = c(0.1, 15)) + geom_point(data = data_seedrain_COL_focals, aes(x=x, y=y,size = seed_density_m2), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+  
+#Corrections for OJI dataset. I add a false point to have the same scale of bubbles in the three plots. I´ll remove it in ilustrator latter
+  data_seedrain_OJI_fake<- data_seedrain_OJI
+  data_seedrain_OJI_fake [ nrow (data_seedrain_OJI_fake) + 1,] = c ("SABOJI", "OA","OT15M43",0,0,0,0,0,0,0,620,"YES",-6.513215101,36.99563347,"no")
+data_seedrain_OJI_fake<-as.data.frame(data_seedrain_OJI_fake)
+  data_seedrain_OJI_fake$mh<-as.factor(data_seedrain_OJI_fake$mh)
+  data_seedrain_OJI_fake$seed_density_m2<-as.numeric(data_seedrain_OJI_fake$seed_density_m2)
+  data_seedrain_OJI_fake$x<-as.numeric(data_seedrain_OJI_fake$x)
+    data_seedrain_OJI_fake$y<-as.numeric(data_seedrain_OJI_fake$y)
+  
+  p2_seedrain<-ggplot() +
+  geom_point( data=data_seedrain_OJI_fake, aes(x=x, y=y,size = seed_density_m2, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ scale_colour_manual(values = col_mh)+ scale_size(range = c(0.1, 15))+ geom_point(data = data_seedrain_OJI_focals, aes(x=x, y=y,size = seed_density_m2), color = "black", pch = 21, stroke = 1.2, fill = NA  ,alpha =0.8 )
+
+  #Corrections for SABMAR datast  I add a false point to have the same scale of bubbles in the three plots. I´ll remove it in ilustrator latter
+    data_seedrain_MAR_fake<- data_seedrain_MAR
+  data_seedrain_MAR_fake [ nrow (data_seedrain_MAR_fake) + 1,] = c ("SABMAR", "OA","OT15M43",0,0,0,0,0,0,0,620,"YES",-6.532385,37.01200,"no")
+data_seedrain_MAR_fake<-as.data.frame(data_seedrain_MAR_fake)
+  data_seedrain_MAR_fake$mh<-as.factor(data_seedrain_MAR_fake$mh)
+  data_seedrain_MAR_fake$seed_density_m2<-as.numeric(data_seedrain_MAR_fake$seed_density_m2)
+  data_seedrain_MAR_fake$x<-as.numeric(data_seedrain_MAR_fake$x)
+    data_seedrain_MAR_fake$y<-as.numeric(data_seedrain_MAR_fake$y)
+  
+p3_seedrain<-ggplot() +
+  geom_point( data=data_seedrain_MAR_fake, aes(x=x, y=y,size = seed_density_m2, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("MAR")+ scale_colour_manual(values = col_mh)+ scale_size(range = c(0.1, 15))+ geom_point(data = data_seedrain_MAR_focals, aes(x=x, y=y,size = seed_density_m2), color = "black", pch = 21, stroke = 1.2, fill = NA ,alpha =0.8 )
+
+ggarrange(p3_seedrain,p2_seedrain,p1_seedrain,ncol = 3, common.legend = TRUE, legend = "right",widths = 1,heights = 0.2) # Figure 2A
+```
+Spatial distribution of dispersed seeds per frugivore per stand
+```{r Patterns of seed rain across AREAS-MH-FRUGIVORES}
+#Erithacus rubecola
+dataset_B_COL_ERUB<- filter(dataset_B_COL, disperser =="Erithacus rubecula")
+dataset_B_OJI_ERUB<- filter(dataset_B_OJI, disperser =="Erithacus rubecula")
+dataset_B_MAR_ERUB<- filter(dataset_B_MAR, disperser =="Erithacus rubecula")
+
+p6<-ggplot() +
+  geom_point( data=dataset_B_COL_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL")+ ylim(37.0000, 37.0010) + xlim(-6.5073, -6.5055)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_COL_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p7<-ggplot() +
+  geom_point( data=dataset_B_OJI_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ ylim(36.9950, 36.9965) + xlim(-6.5137,-6.5127)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_OJI_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p8<-ggplot() +
+  geom_point( data=dataset_B_MAR_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("Erithacus rubecola") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_MAR_ERUB, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+
+#Turdus philomelos
+dataset_B_COL_TPHI<- filter(dataset_B_COL, disperser =="Turdus philomelos")
+dataset_B_OJI_TPHI<- filter(dataset_B_OJI, disperser =="Turdus philomelos")
+dataset_B_MAR_TPHI<- filter(dataset_B_MAR, disperser =="Turdus philomelos")
+
+p9<-ggplot() +
+  geom_point( data=dataset_B_COL_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL")+ ylim(37.0000, 37.0010) + xlim(-6.5073, -6.5055)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_COL_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p10<-ggplot() +
+  geom_point( data=dataset_B_OJI_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ ylim(36.9950, 36.9965) + xlim(-6.5137,-6.5127) +  scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_OJI_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p11<-ggplot() +
+  geom_point( data=dataset_B_MAR_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("Turdus philomelos") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_MAR_TPHI, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+
+#Turdus merula
+dataset_B_COL_TMER<- filter(dataset_B_COL, disperser =="Turdus merula")
+dataset_B_OJI_TMER<- filter(dataset_B_OJI, disperser =="Turdus merula")
+dataset_B_MAR_TMER<- filter(dataset_B_MAR, disperser =="Turdus merula")
+
+p12<-ggplot() +
+  geom_point( data=dataset_B_COL_TMER, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL")+ ylim(37.0000, 37.0010) + xlim(-6.5073, -6.5055)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_COL_TMER, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p13<-ggplot() +
+  geom_point( data=dataset_B_OJI_TMER, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ ylim(36.9950, 36.9965) + xlim(-6.5137,-6.5127) +  scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_OJI_TMER, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p14<-ggplot() +
+  geom_point( data=dataset_B_MAR_TMER, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("Turdus merula") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank()) + scale_size(range = c(1, 15))+ geom_point(data = dataset_B_MAR_TMER, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+
+#Vulpes vulpes
+dataset_B_COL_VVUL<- filter(dataset_B_COL, disperser =="Vulpes vulpes")
+dataset_B_OJI_VVUL<- filter(dataset_B_OJI, disperser =="Vulpes vulpes")
+dataset_B_MAR_VVUL<- filter(dataset_B_MAR, disperser =="Vulpes vulpes")
+
+p15<-ggplot() +
+  geom_point( data=dataset_B_COL_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL")+ ylim(37.0000, 37.0010) + xlim(-6.5073, -6.5055)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_COL_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p16<-ggplot() +
+  geom_point( data=dataset_B_OJI_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ ylim(36.9950, 36.9965) + xlim(-6.5137,-6.5127) +  scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15)) + geom_point(data = dataset_B_OJI_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p17<-ggplot() +
+  geom_point( data=dataset_B_MAR_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("Vulpes vulpes") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_MAR_VVUL, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+
+
+
+
+#Other species
+dataset_B_COL_REST<- filter(dataset_B_COL, disperser =="Sylvia atricapilla"|disperser =="Chloris chloris"|disperser == "Turdus iliacus"| disperser == "Turdus torquatus"|disperser == "Cyanopica cyanus"|disperser == "Cervus elaphus")
+dataset_B_OJI_REST<- filter(dataset_B_OJI,disperser =="Sylvia atricapilla"|disperser =="Chloris chloris"|disperser == "Turdus iliacus"| disperser == "Turdus torquatus"|disperser == "Cyanopica cyanus"|disperser == "Cervus elaphus")
+dataset_B_MAR_REST<- filter(dataset_B_MAR, disperser =="Sylvia atricapilla"|disperser =="Chloris chloris"|disperser == "Turdus iliacus"| disperser == "Turdus torquatus"|disperser == "Cyanopica cyanus"|disperser == "Cervus elaphus")
+
+p18<-ggplot() +
+  geom_point( data=dataset_B_COL_REST, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("COL")+ ylim(37.0000, 37.0010) + xlim(-6.5073, -6.5055)+ scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_COL_REST, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p19<-ggplot() +
+  geom_point( data=dataset_B_OJI_REST, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("OJI")+ ylim(36.9950, 36.9965) + xlim(-6.5137,-6.5127) +  scale_colour_manual(values = col_mh)+ theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_OJI_REST, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+p20<-ggplot() +
+  geom_point( data=dataset_B_MAR_REST, aes(x=x_coord, y=y_coord,size = n_seeds, color = mh),alpha = 0.6) +
+  theme_light()+ ggtitle("Remaining species") + ylim(37.0116, 37.0125) + xlim(-6.5338, -6.5320)+ scale_colour_manual(values = col_mh) + theme(
+  axis.text.x = element_blank(),
+  axis.text.y = element_blank(),
+  axis.ticks = element_blank())+ scale_size(range = c(1, 15))+ geom_point(data = dataset_B_MAR_REST, aes(x=x_coord, y=y_coord,size = n_seeds), color = "black", pch = 21, stroke = 1.2, fill = NA, alpha =0.8 )
+
+
+ggarrange(p11,p10,p9,p8,p7,p6,p14,p13,p12,p17,p16,p15,p20,p19,p18, ncol = 3,nrow = 5, common.legend = TRUE, legend = "bottom",widths = 0.2, heights = 1) # Figure S1
+```
+
+# General differences in seed rain raw-among aras and among MH. PREPARING DATA FOR NESTED ANOVA!
+
+```{r}
+# General values of overall seed rain 
+mean(data_seedrain_COL$seed_density_m2)
+std.error(data_seedrain_COL$seed_density_m2)
+mean(data_seedrain_OJI$seed_density_m2)
+std.error(data_seedrain_OJI$seed_density_m2)
+mean(data_seedrain_MAR$seed_density_m2)
+std.error(data_seedrain_MAR$seed_density_m2)
+
+#Simple questions to overall seed rain
+n_distinct(data_seedrain$ind)      # Númber of sampled points
+sum(data_seedrain$bird_feaces)     # Number of founded bird feces
+sum(data_seedrain$mammal_feaces)   # Number of founded mammal feces
+sum(data_seedrain$total_seeds)     # Total number of seeds
+
+#Distribución de la seed rain density
+hist(data_seedrain$seed_density_m2) # 0 inflated because Open Area transects
+
+#Area and MH order fixing
+data_seedrain$area <- factor(data_seedrain$area, levels = c("SABMAR", "SABOJI", "SABCOL")) 
+data_seedrain$mh <- factor(data_seedrain$mh, levels = c("PP", "JP", "FF","NF","OA")) 
+
+# Lets check the distribution without OA deposition sites
+data_seedrain_NOOA<- filter(data_seedrain, mh !="OA")
+data_seedrain_NOOA<-as.data.frame(data_seedrain_NOOA)
+hist(data_seedrain_NOOA$seed_density_m2) # Poisson
+data_seedrain_NOOA$area <- factor(data_seedrain_NOOA$area, levels = c("SABMAR", "SABOJI", "SABCOL"))
+data_seedrain_NOOA$mh <- factor(data_seedrain_NOOA$mh, levels = c("PP", "JP", "FF","NF","OA"))
+
+# Box-plots to understand variations in seed rain density:
+# Among AREAS
+ggplot(data_seedrain, aes(x = area, y = seed_density_m2))  +geom_boxplot(show.legend = F, varwidth =TRUE, width = 0.25, alpha = 0) +
+geom_point (alpha = 0) + geom_jitter(width = 0.1, alpha = 0.6 ) + theme_bw()+ labs(y = "Estimated seed rain density (seeds/m2), NO OA", x = "AREA")
+
+ # Among microhabitats
+ggplot(data_seedrain, aes(x = mh, y = seed_density_m2))  +geom_boxplot(show.legend = F, varwidth =TRUE, width = 0.25, alpha = 0) +
+geom_point (alpha = 0) + geom_jitter(width = 0.1, alpha = 0.6 ) + theme_bw()+ labs(y = "Estimated seed rain density (seeds/m2)", x = "MICROHABITAT")
+
+# Mean values per MH of the seed rain density
+data_seedrain_JP<- filter(data_seedrain, mh =="JP")
+data_seedrain_PP<- filter(data_seedrain, mh =="PP")
+data_seedrain_NF<- filter(data_seedrain, mh =="NF")
+data_seedrain_FF<- filter(data_seedrain, mh =="FF")
+data_seedrain_OA<- filter(data_seedrain, mh =="OA")
+```
+
+#Nested Anova to test for effect of MH,  AREA and MH+AREA  in seed rain density density per deposition site
+```{r fit nested ANOVA}
+#NestA = INCLUDED INTERACTION BETWEEN MH AND AREA
+nestA <- aov(data_seedrain$seed_density_m2 ~ data_seedrain$area*data_seedrain$mh+  data_seedrain$area / factor(data_seedrain$mh))
+summary(nestA)
+#hist(nestA$residuals) # Assumptions OK
+
+# Plotting 
+ggplot(data_seedrain, aes(x=factor(area), y=seed_density_m2, fill=mh)) + geom_boxplot (alpha = 0.6, colour = "black") + scale_fill_manual(values = col_mh)  + theme_bw() + labs(y = "Nº Seeds/m2", x = "Area") #Figure 2B
+
+tuk<- TukeyHSD(nestA)
+tuk
+plot(TukeyHSD(nestA))
+```
+
+# Rarefaction procedure for analyze the ratio of new progenies in the seed rain among STANDS with iNEX analysis
+```{r}
+#Preparing data for iNext formatt
+dataset_D<- cbind(dataset$geno_profile, c(1:1000))
+dataset_D<-as.data.frame(dataset_D)
+colnames(dataset_D)[1] <-"geno_profile"
+colnames(dataset_D)[2] <-"seed"
+dataset_D<-as.data.frame(dataset_D)
+dataset_D$seed<-as.numeric(dataset_D$seed)
+dataset_D$geno_profile<-as.factor(dataset_D$geno_profile)
+dataset_D
+
+dataset_D<-dcast(dataset_D, seed ~ geno_profile)
+dataset_D[is.na(dataset_D)] <- 0
+dataset_D <- select(dataset_D, -seed)
+dataset_D[dataset_D>1] <- 1
+
+#Area splitting
+dataset_COL<- filter(dataset, area =="SABCOL")
+dataset_OJI<- filter(dataset, area =="SABOJI") 
+dataset_MAR<- filter(dataset, area =="SABMAR") 
+
+
+#col
+dataset_D_COL<- cbind(dataset_COL$geno_profile, c(1:317))
+dataset_D_COL<-as.data.frame(dataset_D_COL)
+colnames(dataset_D_COL)[1] <-"geno_profile"
+colnames(dataset_D_COL)[2] <-"seed"
+dataset_D_COL$seed<-as.numeric(dataset_D_COL$seed)
+dataset_D_COL$geno_profile<-as.factor(dataset_D_COL$geno_profile)
+dataset_D_COL<-as.data.frame(dataset_D_COL)
+dataset_D_COL<-dcast(dataset_D_COL, seed ~ geno_profile)
+dataset_D_COL[is.na(dataset_D_COL)] <- 0
+dataset_D_COL[dataset_D_COL>1] <- 1
+dataset_D_COL <- select(dataset_D_COL, -seed)
+#oji
+dataset_D_OJI<-cbind(dataset_OJI$geno_profile, c(1:369))
+dataset_D_OJI<-as.data.frame(dataset_D_OJI)
+colnames(dataset_D_OJI)[1] <-"geno_profile"
+colnames(dataset_D_OJI)[2] <-"seed"
+dataset_D_OJI$seed<-as.numeric(dataset_D_OJI$seed)
+dataset_D_OJI$geno_profile<-as.factor(dataset_D_OJI$geno_profile)
+dataset_D_OJI<-as.data.frame(dataset_D_OJI)
+dataset_D_OJI<-dcast(dataset_D_OJI, seed ~ geno_profile)
+dataset_D_OJI[is.na(dataset_D_OJI)] <- 0
+dataset_D_OJI[dataset_D_OJI>1] <- 1
+dataset_D_OJI <- select(dataset_D_OJI, -seed)
+
+#mar
+dataset_D_MAR<- cbind(dataset_MAR$geno_profile, c(1:314))
+dataset_D_MAR<-as.data.frame(dataset_D_MAR)
+colnames(dataset_D_MAR)[1] <-"geno_profile"
+colnames(dataset_D_MAR)[2] <-"seed"
+dataset_D_MAR$seed<-as.numeric(dataset_D_MAR$seed)
+dataset_D_MAR$geno_profile<-as.factor(dataset_D_MAR$geno_profile)
+dataset_D_MAR<-as.data.frame(dataset_D_MAR)
+dataset_D_MAR<-dcast(dataset_D_MAR, seed ~ geno_profile)
+dataset_D_MAR[is.na(dataset_D_MAR)] <- 0
+dataset_D_MAR[dataset_D_MAR>1] <- 1
+dataset_D_MAR <- select(dataset_D_MAR, -seed)
+
+
+
+dim(dataset_D_COL) # 317 seeds
+dataset_D_COL_inext<-t(dataset_D_COL)
+dataset_D_COL_inext<-as.data.frame(dataset_D_COL_inext)
+dataset_D_COL_inext<-cbind(dataset_D_COL_inext, rowSums(dataset_D_COL_inext))
+dataset_COL_inext<-dataset_D_COL_inext[,318]
+dataset_D_COL_inext<-cbind(row.names(dataset_D_COL_inext),dataset_COL_inext)
+dataset_D_COL_inext
+colnames(dataset_D_COL_inext)[1] <-"geno_profile"
+colnames(dataset_D_COL_inext)[2] <-"COL"
+dataset_D_COL_inext<-as.data.frame(dataset_D_COL_inext)
+dataset_D_COL_inext$geno_profile<-as.factor(dataset_D_COL_inext$geno_profile)
+dataset_D_COL_inext$COL<-as.numeric(dataset_D_COL_inext$COL)
+
+dim(dataset_D_OJI) # 369 seeds
+dataset_D_OJI_inext<-t(dataset_D_OJI)
+dataset_D_OJI_inext<-as.data.frame(dataset_D_OJI_inext)
+dataset_D_OJI_inext<-cbind(dataset_D_OJI_inext, rowSums(dataset_D_OJI_inext))
+dataset_OJI_inext<-dataset_D_OJI_inext[,370]
+dataset_D_OJI_inext<-cbind(row.names(dataset_D_OJI_inext),dataset_OJI_inext)
+dataset_D_OJI_inext
+colnames(dataset_D_OJI_inext)[1] <-"geno_profile"
+colnames(dataset_D_OJI_inext)[2] <-"OJI"
+dataset_D_OJI_inext<-as.data.frame(dataset_D_OJI_inext)
+dataset_D_OJI_inext$geno_profile<-as.factor(dataset_D_OJI_inext$geno_profile)
+dataset_D_OJI_inext$OJI<-as.numeric(dataset_D_OJI_inext$OJI)
+
+dim(dataset_D_MAR) # 314 seeds
+dataset_D_MAR_inext<-t(dataset_D_MAR)
+dataset_D_MAR_inext<-as.data.frame(dataset_D_MAR_inext)
+dataset_D_MAR_inext<-cbind(dataset_D_MAR_inext, rowSums(dataset_D_MAR_inext))
+dataset_MAR_inext<-dataset_D_MAR_inext[,315]
+dataset_D_MAR_inext<-cbind(row.names(dataset_D_MAR_inext),dataset_MAR_inext)
+dataset_D_MAR_inext
+colnames(dataset_D_MAR_inext)[1] <-"geno_profile"
+colnames(dataset_D_MAR_inext)[2] <-"MAR"
+dataset_D_MAR_inext<-as.data.frame(dataset_D_MAR_inext)
+dataset_D_MAR_inext$geno_profile<-as.factor(dataset_D_MAR_inext$geno_profile)
+dataset_D_MAR_inext$MAR<-as.numeric(dataset_D_MAR_inext$MAR)
+
+DATA_iNext<-full_join(dataset_D_COL_inext,dataset_D_OJI_inext, by = "geno_profile")
+DATA_iNext<-full_join(DATA_iNext,dataset_D_MAR_inext, by = "geno_profile")
+DATA_iNext[is.na(DATA_iNext)] <- 0
+
+DATA_iNext [ nrow (DATA_iNext) + 1,] = c ( "number",317,  369, 314)
+DATA_iNext<-as.data.frame(DATA_iNext)
+DATA_iNext<-DATA_iNext[nrow(DATA_iNext):1,]
+DATA_iNext$COL<-as.numeric(DATA_iNext$COL)
+DATA_iNext$OJI<-as.numeric(DATA_iNext$OJI)
+DATA_iNext$MAR<-as.numeric(DATA_iNext$MAR)
+DATA_iNext_clean<-DATA_iNext[,c(2,3,4)]
+
+t <- seq(1, 314, by=1) # I adjust the three stands to 314 seeds because this is the minimun number of seeds in mature stand (SABMAR)
+out.inc <- iNEXT(DATA_iNext_clean, q=0, datatype="incidence_freq", size=t)
+
+plot_area_iNEXT<-ggiNEXT(out.inc, type=1) + ylim(0,250) + xlim(0,314) +
+ theme_bw(base_size = 18) +
+ theme(legend.position="none") # Figure S3A
+
+#out.inc$AsyEst
+```
+
+
+Accumulation curves of maternal progenies in the seed rain at frugivore level
+```{r}
+#MH splitting
+dataset_JP<- filter(dataset, microhabitat =="JP")
+dataset_PP<- filter(dataset, microhabitat =="PP")
+dataset_FF<- filter(dataset, microhabitat =="FF")
+dataset_NF<- filter(dataset, microhabitat =="NF")
+dataset_OA<- filter(dataset, microhabitat =="OA")
+
+#JP
+dataset_D_JP<- cbind(dataset_JP$geno_profile, c(1:287))
+dataset_D_JP<-as.data.frame(dataset_D_JP)
+colnames(dataset_D_JP)[1] <-"geno_profile"
+colnames(dataset_D_JP)[2] <-"seed"
+dataset_D_JP$seed<-as.numeric(dataset_D_JP$seed)
+dataset_D_JP$geno_profile<-as.factor(dataset_D_JP$geno_profile)
+dataset_D_JP<-as.data.frame(dataset_D_JP)
+dataset_D_JP<-dcast(dataset_D_JP, seed ~ geno_profile)
+dataset_D_JP[is.na(dataset_D_JP)] <- 0
+dataset_D_JP[dataset_D_JP>1] <- 1
+dataset_D_JP <- select(dataset_D_JP, -seed)
+
+#PP
+dataset_D_PP<- cbind(dataset_PP$geno_profile, c(1:290))
+dataset_D_PP<-as.data.frame(dataset_D_PP)
+colnames(dataset_D_PP)[1] <-"geno_profile"
+colnames(dataset_D_PP)[2] <-"seed"
+dataset_D_PP$seed<-as.numeric(dataset_D_PP$seed)
+dataset_D_PP$geno_profile<-as.factor(dataset_D_PP$geno_profile)
+dataset_D_PP<-as.data.frame(dataset_D_PP)
+dataset_D_PP<-dcast(dataset_D_PP, seed ~ geno_profile)
+dataset_D_PP[is.na(dataset_D_PP)] <- 0
+dataset_D_PP[dataset_D_PP>1] <- 1
+dataset_D_PP <- select(dataset_D_PP, -seed)
+
+#FF
+dataset_D_FF<- cbind(dataset_FF$geno_profile, c(1:94))
+dataset_D_FF<-as.data.frame(dataset_D_FF)
+colnames(dataset_D_FF)[1] <-"geno_profile"
+colnames(dataset_D_FF)[2] <-"seed"
+dataset_D_FF$seed<-as.numeric(dataset_D_FF$seed)
+dataset_D_FF$geno_profile<-as.factor(dataset_D_FF$geno_profile)
+dataset_D_FF<-as.data.frame(dataset_D_FF)
+dataset_D_FF<-dcast(dataset_D_FF, seed ~ geno_profile)
+dataset_D_FF[is.na(dataset_D_FF)] <- 0
+dataset_D_FF[dataset_D_FF>1] <- 1
+dataset_D_FF <- select(dataset_D_FF, -seed)
+
+#NF
+dataset_D_NF<- cbind(dataset_NF$geno_profile, c(1:173))
+dataset_D_NF<-as.data.frame(dataset_D_NF)
+colnames(dataset_D_NF)[1] <-"geno_profile"
+colnames(dataset_D_NF)[2] <-"seed"
+dataset_D_NF$seed<-as.numeric(dataset_D_NF$seed)
+dataset_D_NF$geno_profile<-as.factor(dataset_D_NF$geno_profile)
+dataset_D_NF<-as.data.frame(dataset_D_NF)
+dataset_D_NF<-dcast(dataset_D_NF, seed ~ geno_profile)
+dataset_D_NF[is.na(dataset_D_NF)] <- 0
+dataset_D_NF[dataset_D_NF>1] <- 1
+dataset_D_NF <- select(dataset_D_NF, -seed)
+
+#OA
+dataset_D_OA<- cbind(dataset_OA$geno_profile, c(1:156))
+dataset_D_OA<-as.data.frame(dataset_D_OA)
+colnames(dataset_D_OA)[1] <-"geno_profile"
+colnames(dataset_D_OA)[2] <-"seed"
+dataset_D_OA$seed<-as.numeric(dataset_D_OA$seed)
+dataset_D_OA$geno_profile<-as.factor(dataset_D_OA$geno_profile)
+dataset_D_OA<-as.data.frame(dataset_D_OA)
+dataset_D_OA<-dcast(dataset_D_OA, seed ~ geno_profile)
+dataset_D_OA[is.na(dataset_D_OA)] <- 0
+dataset_D_OA[dataset_D_OA>1] <- 1
+dataset_D_OA <- select(dataset_D_OA, -seed)
+
+#Computing specaccum 
+
+require(vegan)
+#sp_JP <- specaccum(dataset_D_JP, "random",permutations=1000)
+#sp_PP <- specaccum(dataset_D_PP, "random",permutations=1000)
+#sp_NF <- specaccum(dataset_D_NF, "random",permutations=1000)
+#sp_FF <- specaccum(dataset_D_FF, "random",permutations=1000)
+#sp_OA <- specaccum(dataset_D_OA, "random",permutations=1000)
+
+
+#plot(sp_JP, ci.type="polygon",col="#555555", lwd=2, ci.lty=0,  xlim = c(0, 300),ylim = c(0, 300),
+   #  ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+   #  xlab="Number of dispersed seeds", main="Maternal accumulation in JP")
+#plot(sp_PP, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
+    # ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+   #  xlab="Number of dispersed seeds", main="Maternal accumulation in PP")
+#plot(sp_NF, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
+    # ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+    # xlab="Number of dispersed seeds", main="Maternal accumulation in NF")
+#plot(sp_FF, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of dispersed seeds", main="Maternal accumulation in FF")
+#plot(sp_OA, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of dispersed seeds", main="Maternal accumulation in OA")
+```
+
+```{r}
+#Frugivore splitting
+dataset$disperser <- recode_factor(dataset$disperser, "Cervus elaphus" = "Remaining species","Turdus torquatus" = "Remaining species","Chloris chloris" = "Remaining species","Cyanopica cyanus" = "Remaining species","Sylvia atricapilla" = "Remaining species","Turdus iliacus" = "Remaining species")
+
+dataset_ERUB<- filter(dataset, disperser =="Erithacus rubecula")
+dataset_TPHI<- filter(dataset, disperser =="Turdus philomelos") 
+dataset_TMER<- filter(dataset, disperser =="Turdus merula") 
+dataset_VVUL<- filter(dataset, disperser =="Vulpes vulpes") 
+dataset_REM<-  filter(dataset, disperser =="Remaining species") 
+
+dataset_ERUB<- cbind(dataset_ERUB$geno_profile, c(1:95))
+dataset_TPHI<- cbind(dataset_TPHI$geno_profile, c(1:687))
+dataset_TMER<- cbind(dataset_TMER$geno_profile, c(1:95))
+dataset_VVUL<- cbind(dataset_VVUL$geno_profile, c(1:94))
+dataset_REM<- cbind(dataset_REM$geno_profile, c(1:29))
+
+dataset_ERUB<-as.data.frame(dataset_ERUB)
+dataset_TPHI<-as.data.frame(dataset_TPHI)
+dataset_TMER<-as.data.frame(dataset_TMER)
+dataset_VVUL<-as.data.frame(dataset_VVUL)
+dataset_REM<-as.data.frame(dataset_REM)
+
+colnames(dataset_ERUB)[1] <-"geno_profile"
+colnames(dataset_ERUB)[2] <-"seed"
+colnames(dataset_TPHI)[1] <-"geno_profile"
+colnames(dataset_TPHI)[2] <-"seed"
+colnames(dataset_TMER)[1] <-"geno_profile"
+colnames(dataset_TMER)[2] <-"seed"
+colnames(dataset_VVUL)[1] <-"geno_profile"
+colnames(dataset_VVUL)[2] <-"seed"
+colnames(dataset_REM)[1] <-"geno_profile"
+colnames(dataset_REM)[2] <-"seed"
+
+
+dataset_ERUB$seed<-as.numeric(dataset_ERUB$seed)
+dataset_ERUB$geno_profile<-as.factor(dataset_ERUB$geno_profile)
+dataset_TPHI$seed<-as.numeric(dataset_TPHI$seed)
+dataset_TPHI$geno_profile<-as.factor(dataset_TPHI$geno_profile)
+dataset_TMER$seed<-as.numeric(dataset_TMER$seed)
+dataset_TMER$geno_profile<-as.factor(dataset_TMER$geno_profile)
+dataset_VVUL$seed<-as.numeric(dataset_VVUL$seed)
+dataset_VVUL$geno_profile<-as.factor(dataset_VVUL$geno_profile)
+dataset_REM$seed<-as.numeric(dataset_REM$seed)
+dataset_REM$geno_profile<-as.factor(dataset_REM$geno_profile)
+
+dataset_ERUB<-as.data.frame(dataset_ERUB)
+dataset_TPHI<-as.data.frame(dataset_TPHI)
+dataset_TMER<-as.data.frame(dataset_TMER)
+dataset_VVUL<-as.data.frame(dataset_VVUL)
+dataset_REM<-as.data.frame(dataset_REM)
+
+
+dataset_ERUB<-dcast(dataset_ERUB, seed ~ geno_profile)
+dataset_TPHI<-dcast(dataset_TPHI, seed ~ geno_profile)
+dataset_TMER<-dcast(dataset_TMER, seed ~ geno_profile)
+dataset_VVUL<-dcast(dataset_VVUL, seed ~ geno_profile)
+dataset_REM<-dcast(dataset_REM, seed ~ geno_profile)
+
+
+dataset_ERUB[is.na(dataset_ERUB)] <- 0
+dataset_TPHI[is.na(dataset_TPHI)] <- 0
+dataset_TMER[is.na(dataset_TMER)] <- 0
+dataset_VVUL[is.na(dataset_VVUL)] <- 0
+dataset_REM[is.na(dataset_REM)] <- 0
+
+dataset_ERUB[dataset_ERUB>1] <- 1
+dataset_TPHI[dataset_TPHI>1] <- 1
+dataset_TMER[dataset_TMER>1] <- 1
+dataset_VVUL[dataset_VVUL>1] <- 1
+dataset_REM[dataset_REM>1] <- 1
+
+
+
+dataset_ERUB <- select(dataset_ERUB, -seed)
+dataset_TPHI <- select(dataset_TPHI, -seed)
+dataset_TMER <- select(dataset_TMER, -seed)
+dataset_VVUL <- select(dataset_VVUL, -seed)
+dataset_REM <- select(dataset_REM, -seed)
+
+require(vegan)
+#sp_ERUB <- specaccum(dataset_ERUB, "random",permutations=1000)
+#sp_TPHI <- specaccum(dataset_TPHI, "random",permutations=1000)
+#sp_TMER <- specaccum(dataset_TMER, "random",permutations=1000)
+#sp_VVUL <- specaccum(dataset_VVUL, "random",permutations=1000)
+#sp_REM  <- specaccum(dataset_REM , "random",permutations=1000)
+
+#plot(sp_ERUB, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100), 
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of seeds", main="Maternal accumulation for Erithacus rubecula")
+#plot(sp_TPHI, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 700),ylim = c(0, 700),  
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of seeds", main="Maternal accumulation for Turdus philomelos")
+#plot(sp_TMER, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of seeds", main="Maternal accumulation for Turdus merula")
+#plot(sp_VVUL, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of seeds", main="Maternal accumulation for Vulpes vulpes")
+#plot(sp_REM, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
+#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
+#     xlab="Number of seeds", main="Maternal accumulation for Remaining species")
+```
+
+```{r}
+##JP
+dim(dataset_D_JP) # 287 seeds
+dataset_D_JP_inext<-t(dataset_D_JP)
+dataset_D_JP_inext<-as.data.frame(dataset_D_JP_inext)
+dataset_D_JP_inext<-cbind(dataset_D_JP_inext, rowSums(dataset_D_JP_inext))
+dataset_JP_inext<-dataset_D_JP_inext[,288]
+dataset_D_JP_inext<-cbind(row.names(dataset_D_JP_inext),dataset_JP_inext)
+colnames(dataset_D_JP_inext)[1] <-"geno_profile"
+colnames(dataset_D_JP_inext)[2] <-"JP"
+dataset_D_JP_inext<-as.data.frame(dataset_D_JP_inext)
+dataset_D_JP_inext$geno_profile<-as.factor(dataset_D_JP_inext$geno_profile)
+dataset_D_JP_inext$JP<-as.numeric(dataset_D_JP_inext$JP)
+dataset_D_JP_inext
+
+##PP
+dim(dataset_D_PP) #290 seeds
+dataset_D_PP_inext<-t(dataset_D_PP)
+dataset_D_PP_inext<-as.data.frame(dataset_D_PP_inext)
+dataset_D_PP_inext<-cbind(dataset_D_PP_inext, rowSums(dataset_D_PP_inext))
+dataset_PP_inext<-dataset_D_PP_inext[,291]
+dataset_D_PP_inext<-cbind(row.names(dataset_D_PP_inext),dataset_PP_inext)
+colnames(dataset_D_PP_inext)[1] <-"geno_profile"
+colnames(dataset_D_PP_inext)[2] <-"PP"
+dataset_D_PP_inext<-as.data.frame(dataset_D_PP_inext)
+dataset_D_PP_inext$geno_profile<-as.factor(dataset_D_PP_inext$geno_profile)
+dataset_D_PP_inext$PP<-as.numeric(dataset_D_PP_inext$PP)
+dataset_D_PP_inext
+
+#NF
+dim(dataset_D_NF) #173 seeds
+dataset_D_NF_inext<-t(dataset_D_NF)
+dataset_D_NF_inext<-as.data.frame(dataset_D_NF_inext)
+dataset_D_NF_inext<-cbind(dataset_D_NF_inext, rowSums(dataset_D_NF_inext))
+dataset_NF_inext<-dataset_D_NF_inext[,174]
+dataset_D_NF_inext<-cbind(row.names(dataset_D_NF_inext),dataset_NF_inext)
+colnames(dataset_D_NF_inext)[1] <-"geno_profile"
+colnames(dataset_D_NF_inext)[2] <-"NF"
+dataset_D_NF_inext<-as.data.frame(dataset_D_NF_inext)
+dataset_D_NF_inext$geno_profile<-as.factor(dataset_D_NF_inext$geno_profile)
+dataset_D_NF_inext$NF<-as.numeric(dataset_D_NF_inext$NF)
+dataset_D_NF_inext
+
+#FF
+dim(dataset_D_FF) #94 seeds
+dataset_D_FF_inext<-t(dataset_D_FF)
+dataset_D_FF_inext<-as.data.frame(dataset_D_FF_inext)
+dataset_D_FF_inext<-cbind(dataset_D_FF_inext, rowSums(dataset_D_FF_inext))
+dataset_FF_inext<-dataset_D_FF_inext[,95]
+dataset_D_FF_inext<-cbind(row.names(dataset_D_FF_inext),dataset_FF_inext)
+colnames(dataset_D_FF_inext)[1] <-"geno_profile"
+colnames(dataset_D_FF_inext)[2] <-"FF"
+dataset_D_FF_inext<-as.data.frame(dataset_D_FF_inext)
+dataset_D_FF_inext$geno_profile<-as.factor(dataset_D_FF_inext$geno_profile)
+dataset_D_FF_inext$FF<-as.numeric(dataset_D_FF_inext$FF)
+dataset_D_FF_inext
+
+#OA
+dataset_D_OA
+dim(dataset_D_OA) #156 seeds
+dataset_D_OA_inext<-t(dataset_D_OA)
+dataset_D_OA_inext<-as.data.frame(dataset_D_OA_inext)
+dataset_D_OA_inext<-cbind(dataset_D_OA_inext, rowSums(dataset_D_OA_inext))
+dataset_OA_inext<-dataset_D_OA_inext[,157]
+dataset_D_OA_inext<-cbind(row.names(dataset_D_OA_inext),dataset_OA_inext)
+colnames(dataset_D_OA_inext)[1] <-"geno_profile"
+colnames(dataset_D_OA_inext)[2] <-"OA"
+dataset_D_OA_inext<-as.data.frame(dataset_D_OA_inext)
+dataset_D_OA_inext$geno_profile<-as.factor(dataset_D_OA_inext$geno_profile)
+dataset_D_OA_inext$OA<-as.numeric(dataset_D_OA_inext$OA)
+dataset_D_OA_inext
+
+
+
+DATA_iNext_MH<-full_join(dataset_D_JP_inext,dataset_D_PP_inext, by = "geno_profile")
+DATA_iNext_MH<-full_join(DATA_iNext_MH,dataset_D_NF_inext, by = "geno_profile")
+DATA_iNext_MH<-full_join(DATA_iNext_MH,dataset_D_FF_inext, by = "geno_profile")
+DATA_iNext_MH<-full_join(DATA_iNext_MH,dataset_D_OA_inext, by = "geno_profile")
+
+DATA_iNext_MH[is.na(DATA_iNext_MH)] <- 0
+
+DATA_iNext_MH [ nrow (DATA_iNext_MH) + 1,] = c ( "number" ,287,  290, 173,94,156)
+DATA_iNext_MH<-as.data.frame(DATA_iNext_MH)
+DATA_iNext_MH<-DATA_iNext_MH[nrow(DATA_iNext_MH):1,]
+DATA_iNext_MH$JP<-as.numeric(DATA_iNext_MH$JP)
+DATA_iNext_MH$PP<-as.numeric(DATA_iNext_MH$PP)
+DATA_iNext_MH$NF<-as.numeric(DATA_iNext_MH$NF)
+DATA_iNext_MH$FF<-as.numeric(DATA_iNext_MH$FF)
+DATA_iNext_MH$OA<-as.numeric(DATA_iNext_MH$OA)
+DATA_iNext_MH_clean<-DATA_iNext_MH[,c(2,3,4,5,6)]
+
+t <- seq(1, 94, by=1) # I fix 94 because is the microhabitat with less seeds. 
+out.inc_MH <- iNEXT(DATA_iNext_MH_clean, q=0, datatype="incidence_freq", size=t)
+ 
+plot_mh_iNEXT<-ggiNEXT(out.inc_MH, type=1) + ylim (0,94) + xlim(0,94) +
+ theme_bw(base_size = 18) +
+ theme(legend.position= "none") #Figure S3B
+```
+
+```{r}
+##TUR PHI
+dim(dataset_TPHI) # 687 seeds
+dataset_D_TPHI_inext<-t(dataset_TPHI)
+dataset_D_TPHI_inext<-as.data.frame(dataset_D_TPHI_inext)
+dataset_D_TPHI_inext<-cbind(dataset_D_TPHI_inext, rowSums(dataset_D_TPHI_inext))
+dataset_TPHI_inext<-dataset_D_TPHI_inext[,688]
+dataset_D_TPHI_inext<-cbind(row.names(dataset_D_TPHI_inext),dataset_TPHI_inext)
+colnames(dataset_D_TPHI_inext)[1] <-"geno_profile"
+colnames(dataset_D_TPHI_inext)[2] <-"TPHI"
+dataset_D_TPHI_inext<-as.data.frame(dataset_D_TPHI_inext)
+dataset_D_TPHI_inext$geno_profile<-as.factor(dataset_D_TPHI_inext$geno_profile)
+dataset_D_TPHI_inext$TPHI<-as.numeric(dataset_D_TPHI_inext$TPHI)
+dataset_D_TPHI_inext
+
+##ERI RUB
+dim(dataset_ERUB) # 95 seeds
+dataset_D_ERUB_inext<-t(dataset_ERUB)
+dataset_D_ERUB_inext<-as.data.frame(dataset_D_ERUB_inext)
+dataset_D_ERUB_inext<-cbind(dataset_D_ERUB_inext, rowSums(dataset_D_ERUB_inext))
+dataset_ERUB_inext<-dataset_D_ERUB_inext[,96]
+dataset_D_ERUB_inext<-cbind(row.names(dataset_D_ERUB_inext),dataset_ERUB_inext)
+colnames(dataset_D_ERUB_inext)[1] <-"geno_profile"
+colnames(dataset_D_ERUB_inext)[2] <-"ERUB"
+dataset_D_ERUB_inext<-as.data.frame(dataset_D_ERUB_inext)
+dataset_D_ERUB_inext$geno_profile<-as.factor(dataset_D_ERUB_inext$geno_profile)
+dataset_D_ERUB_inext$ERUB<-as.numeric(dataset_D_ERUB_inext$ERUB)
+dataset_D_ERUB_inext
+
+##TUR MER
+dim(dataset_TMER) # 95 seeds
+dataset_D_TMER_inext<-t(dataset_TMER)
+dataset_D_TMER_inext<-as.data.frame(dataset_D_TMER_inext)
+dataset_D_TMER_inext<-cbind(dataset_D_TMER_inext, rowSums(dataset_D_TMER_inext))
+dataset_TMER_inext<-dataset_D_TMER_inext[,96]
+dataset_D_TMER_inext<-cbind(row.names(dataset_D_TMER_inext),dataset_TMER_inext)
+colnames(dataset_D_TMER_inext)[1] <-"geno_profile"
+colnames(dataset_D_TMER_inext)[2] <-"TMER"
+dataset_D_TMER_inext<-as.data.frame(dataset_D_TMER_inext)
+dataset_D_TMER_inext$geno_profile<-as.factor(dataset_D_TMER_inext$geno_profile)
+dataset_D_TMER_inext$TMER<-as.numeric(dataset_D_TMER_inext$TMER)
+dataset_D_TMER_inext
+
+##VUL VUL
+dim(dataset_VVUL) # 94 seeds
+dataset_D_VVUL_inext<-t(dataset_VVUL)
+dataset_D_VVUL_inext<-as.data.frame(dataset_D_VVUL_inext)
+dataset_D_VVUL_inext<-cbind(dataset_D_VVUL_inext, rowSums(dataset_D_VVUL_inext))
+dataset_VVUL_inext<-dataset_D_VVUL_inext[,95]
+dataset_D_VVUL_inext<-cbind(row.names(dataset_D_VVUL_inext),dataset_VVUL_inext)
+colnames(dataset_D_VVUL_inext)[1] <-"geno_profile"
+colnames(dataset_D_VVUL_inext)[2] <-"VVUL"
+dataset_D_VVUL_inext<-as.data.frame(dataset_D_VVUL_inext)
+dataset_D_VVUL_inext$geno_profile<-as.factor(dataset_D_VVUL_inext$geno_profile)
+dataset_D_VVUL_inext$VVUL<-as.numeric(dataset_D_VVUL_inext$VVUL)
+dataset_D_VVUL_inext
+
+##REM SP = Ancillary species
+dim(dataset_REM) # 29 seeds
+dataset_D_REML_inext<-t(dataset_REM)
+dataset_D_REML_inext<-as.data.frame(dataset_D_REML_inext)
+dataset_D_REML_inext<-cbind(dataset_D_REML_inext, rowSums(dataset_D_REML_inext))
+dataset_REM_inext<-dataset_D_REML_inext[,30]
+dataset_D_REML_inext<-cbind(row.names(dataset_D_REML_inext),dataset_REM_inext)
+colnames(dataset_D_REML_inext)[1] <-"geno_profile"
+colnames(dataset_D_REML_inext)[2] <-"REM"
+dataset_D_REML_inext<-as.data.frame(dataset_D_REML_inext)
+dataset_D_REML_inext$geno_profile<-as.factor(dataset_D_REML_inext$geno_profile)
+dataset_D_REML_inext$REM<-as.numeric(dataset_D_REML_inext$REM)
+dataset_D_REML_inext
+
+
+DATA_iNext_FRU<-full_join(dataset_D_TPHI_inext,dataset_D_ERUB_inext, by = "geno_profile")
+DATA_iNext_FRU<-full_join(DATA_iNext_FRU,dataset_D_TMER_inext, by = "geno_profile")
+DATA_iNext_FRU<-full_join(DATA_iNext_FRU,dataset_D_VVUL_inext, by = "geno_profile")
+DATA_iNext_FRU<-full_join(DATA_iNext_FRU,dataset_D_REML_inext, by = "geno_profile")
+
+DATA_iNext_FRU[is.na(DATA_iNext_FRU)] <- 0
+
+DATA_iNext_FRU [ nrow (DATA_iNext_FRU) + 1,] = c ( "number" ,687,  95, 95,94,29)
+DATA_iNext_FRU<-as.data.frame(DATA_iNext_FRU)
+DATA_iNext_FRU<-DATA_iNext_FRU[nrow(DATA_iNext_FRU):1,]
+DATA_iNext_FRU$TPHI<-as.numeric(DATA_iNext_FRU$TPHI)
+DATA_iNext_FRU$ERUB<-as.numeric(DATA_iNext_FRU$ERUB)
+DATA_iNext_FRU$TMER<-as.numeric(DATA_iNext_FRU$TMER)
+DATA_iNext_FRU$VVUL<-as.numeric(DATA_iNext_FRU$VVUL)
+DATA_iNext_FRU$REM<-as.numeric(DATA_iNext_FRU$REM)
+DATA_iNext_FRU_clean<-DATA_iNext_FRU[,c(2,3,4,5,6)]
+
+t <- seq(1, 94, by=1) # I fix 94 because is the number of seeds for the less frequent frugivores (not consiodering ancillary species, in this case i will use an extrapolation approach)
+out.inc_FRU <- iNEXT(DATA_iNext_FRU_clean, q=0, datatype="incidence_freq", size=t)
+ 
+plot_FRU_iNEXT<-ggiNEXT(out.inc_FRU, type=1) +
+ theme_bw(base_size = 18) + xlim(0,95) + ylim (0,90) +
+ theme(legend.position="none")
+
+ggarrange(plot_area_iNEXT,plot_mh_iNEXT,plot_FRU_iNEXT) # Figure  S3
+
+```
+
+# Now, I will explore the maternal properties related to kinship. For this I load the relatedness dataset between the maternal genotypes of the seeds. These values are closer to 1 the more similar the genotype between seed pairs. I calculated them following the method proposed by Queller and Goodnight (1989) in GenAlex. 
+
+```{r data loading}
+matrix <- read_delim("relatedness_matrix.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE) # Queller and Goodnight (1989)  relatedness estimator - Mean. // Cumputed by GenAlex
+
+# Colappsing attributes for retain in the name
+matrix$seed <- paste(matrix$seed , matrix$area, matrix$mh , matrix$ind , matrix$labcode ,matrix$disperser,  sep="/")
+
+# Remove redundant columns now
+matrix<-matrix[,-c(2,3,4,5,6)]
+matrix<-column_to_rownames(matrix, var = "seed")
+
+#Same name for rows and columns
+names<- row.names(matrix)
+colnames(matrix) <- names
+matrix<-as.matrix(matrix) # Matrix object
+dim(matrix) #It is symetric? YES Because are pairwise comparisions
+
+# All the possible comparisions
+list <- melt(matrix)
+list<-as.data.frame(list)
+
+#Relatedness to numeric
+list$value<-as.numeric(list$value)
+
+# The size of the list is the number of all possible combinations
+dim (list) #1050625 = (1025*1025)
+
+# I have to remove all the  `0´ in the lista
+list<-list[!(list$value == "0"), ]
+dim (list) #It works because i mantain 1050625-1025 = 1049600
+
+# Remove duplicated combinations
+list<-list[!duplicated(t(apply(list[c("Var1", "Var2")], 1, sort))), ] # TIME CONSUMING FUNCTION
+dim(list) #It works because i mantain  524800 =(1025*(1025-1))/2-< combinations formula
+
+# Split name column into firstname and last name
+list_var1<-list[c('seed','area', 'microhabitat', 'ind', 'labcode', 'disperser')] <- str_split_fixed(list$Var1, '/', 6)
+list_var2<-list[c('seed','area', 'microhabitat', 'ind', 'labcode', 'disperser')] <- str_split_fixed(list$Var2, '/', 6)
+
+#To data frame
+list_var1<-as.data.frame(list_var1)
+list_var2<-as.data.frame(list_var2)
+
+list_var1<-cbind.data.frame(list_var1,list_var2)
+rela_data<-cbind(list_var1, list$value)
+
+# Columns names
+colnames(rela_data)[1]  <- "seed_A"
+colnames(rela_data)[2]  <- "area_A"
+colnames(rela_data)[3]  <- "mh_A"
+colnames(rela_data)[4]  <- "ind_A"
+colnames(rela_data)[5]  <- "labcode_A"
+colnames(rela_data)[6]  <- "disperser_A"
+
+colnames(rela_data)[7]  <- "seed_B"
+colnames(rela_data)[8]  <- "area_B"
+colnames(rela_data)[9]  <- "mh_B"
+colnames(rela_data)[10]  <- "ind_B"
+colnames(rela_data)[11]  <- "labcode_B"
+colnames(rela_data)[12]  <- "disperser_B"
+
+colnames(rela_data)[13]  <- "relatedness"
+rela_data<-as.data.frame(rela_data)        # END! Now i have the pairwise relatedness dataset ready to work!
+hist(rela_data$relatedness)
+```
+
+#Mean Relatedness within deposition sites estimation
+```{r rela within points}
+rela_data_within_point<- subset(x = rela_data, 
+       subset = ind_A == ind_B)
+n_distinct(rela_data_within_point$ind_B)
+
+rela_data_within_point<- rela_data_within_point %>% group_by(area_A,mh_A, ind_A) %>% summarise( mean_relatedness = mean(relatedness))
+
+box_plot <- ggplot(rela_data_within_point, aes(x = mh_A, y = mean_relatedness))  +geom_boxplot(show.legend = F, varwidth =TRUE) +
+geom_point() 
+box_plot
+
+rela_data_within_point # Here it is!
+rela_data_within_point_final<- rela_data_within_point %>% group_by(area_A,mh_A) %>% summarise( media_relatedness = mean(mean_relatedness),  se_relatedness = std.error(mean_relatedness)) 
+ rela_data_within_point_final
+                                                                                               
+rela_data_within_area<- subset(x = rela_data, 
+       subset = area_A == area_B)
+rela_data_within_area<-rela_data_within_area %>% group_by(area_A) %>% summarise( mean_relatedness = mean(relatedness))
+```
+# Relatednes within scat per frugivore
+
+```{r within the same SCAT relatedness by frugivore estimation}
+
+rela_data_ERUB_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Erithacus rubecula" & 
+                disperser_B == "Erithacus rubecula")
+
+mean_scat_ERUB<-mean(rela_data_ERUB_scat$relatedness)
+se_scat_ERUB<-sd(rela_data_ERUB_scat$relatedness)
+length(rela_data_ERUB_scat$seed_A)
+
+rela_data_TPHI_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Turdus philomelos" & 
+                disperser_B == "Turdus philomelos")
+
+mean_scat_TPHI<-mean(rela_data_TPHI_scat$relatedness)
+se_scat_TPHI<-sd(rela_data_TPHI_scat$relatedness)
+length(rela_data_TPHI_scat$seed_A)
+
+rela_data_TMER_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Turdus merula" & 
+                disperser_B == "Turdus merula")
+
+mean_scat_TMER<-mean(rela_data_TMER_scat$relatedness)
+se_scat_TMER<-sd(rela_data_TMER_scat$relatedness)
+length(rela_data_TMER_scat$seed_A)
+
+rela_data_VVUL_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Vulpes vulpes" & 
+                disperser_B == "Vulpes vulpes")
+
+mean_scat_VVUL<-mean(rela_data_VVUL_scat$relatedness)
+se_scat_VVUL<-sd(rela_data_VVUL_scat$relatedness)
+length(rela_data_VVUL_scat$seed_A)
+
+rela_data_SATR_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Sylvia atricapilla" & 
+                disperser_B == "Sylvia atricapilla")
+
+mean_scat_SATR<-mean(rela_data_SATR_scat$relatedness)
+se_scat_SATR<-sd(rela_data_SATR_scat$relatedness)
+length(rela_data_SATR_scat$seed_A)
+
+rela_data_CCHL_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Chloris chloris" & 
+                disperser_B == "Chloris chloris")
+
+mean_scat_CCHL<-mean(rela_data_CCHL_scat$relatedness)
+se_scat_CCHL<-sd(rela_data_CCHL_scat$relatedness)
+length(rela_data_CCHL_scat$seed_A)
+
+rela_data_TILI_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Turdus illiacus" & 
+                disperser_B == "Turdus illiacus")
+
+
+rela_data_TTOR_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Turdus torquatus" & 
+                disperser_B == "Turdus torquatus")
+
+mean_scat_TTOR<-mean(rela_data_TTOR_scat$relatedness)
+se_scat_TTOR<-sd(rela_data_TTOR_scat$relatedness)
+length(rela_data_TTOR_scat$seed_A)
+
+rela_data_CCYA_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Cyanopica cyanus" & 
+                disperser_B == "Cyanopica cyanus")
+
+mean_scat_CCYA<-mean(rela_data_CCYA_scat$relatedness)
+se_scat_CCYA<-sd(rela_data_CCYA_scat$relatedness)
+length(rela_data_CCYA_scat$seed_A)
+
+rela_data_CELA_scat<- subset(x = rela_data, 
+       subset = labcode_A == labcode_B &
+                disperser_A =="Cervus elaphus" & 
+                disperser_B == "Cervus elaphus")
+
+mean_scat_CELA<-mean(rela_data_CELA_scat$relatedness)
+se_scat_CELA<-sd(rela_data_CELA_scat$relatedness)
+length(rela_data_CELA_scat$seed_A)
+
+#Creating final dataframe within scat relatedness
+
+names<-c("Erithacus rubecola", "Turdus philomelos","Turdus merula","Vulpes vulpes","Sylvia atricapilla","Chloris chloris" , "Turdus torquatus","Cyanopica cyanus", "Cervus elaphus" )
+
+mean_rela_within_scat <- c(mean_scat_ERUB,mean_scat_TPHI,mean_scat_TMER,mean_scat_VVUL,mean_scat_SATR, mean_scat_CCHL,mean_scat_TTOR,mean_scat_CCYA,mean_scat_CELA)
+
+se_rela_within_scat <- c(se_scat_ERUB,se_scat_TPHI,se_scat_TMER,se_scat_VVUL,se_scat_SATR, se_scat_CCHL,se_scat_TTOR,se_scat_CCYA,se_scat_CELA)
+
+pairwise_comparations_scat<-c(length(rela_data_ERUB_scat$seed_A), length(rela_data_TPHI_scat$seed_A),length(rela_data_TMER_scat$seed_A),length(rela_data_VVUL_scat$seed_A),length(rela_data_SATR_scat$seed_A),length(rela_data_CCHL_scat$seed_A),length(rela_data_TTOR_scat$seed_A),length(rela_data_CCYA_scat$seed_A),length(rela_data_CELA_scat$seed_A))
+
+data_within_scat<-data.frame(names,mean_rela_within_scat,se_rela_within_scat,pairwise_comparations_scat)
+data_within_scat$pairwise_comparations_scat<-as.numeric(data_within_scat$pairwise_comparations_scat) # Data for table 1
+
+colnames(data_within_scat)[1]  <- "disperser"
+colnames(data_within_scat)[2]  <- "mean_rela_within_sca"
+colnames(data_within_scat)[3]  <- "se_rela_within_scat"
+colnames(data_within_scat)[4]  <- "pairwise_comparations_scat"
+```
+
+RELATEDNESS WITHIN DEPOSITION SITES
+
+```{r within the same SEED TRAP relatedness by frugivore estimation}
+rela_data_ERUB_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B & 
+                disperser_A =="Erithacus rubecula" & 
+                disperser_B == "Erithacus rubecula")
+
+mean_within_trap_ERUB<-mean(rela_data_ERUB_trap$relatedness)
+se_within_trap_ERUB<-sd(rela_data_ERUB_trap$relatedness)
+length(rela_data_ERUB_trap$seed_A)
+
+rela_data_TPHI_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Turdus philomelos" & 
+                disperser_B == "Turdus philomelos")
+
+mean_within_trap_TPHI<-mean(rela_data_TPHI_trap$relatedness)
+se_within_trap_TPHI<-sd(rela_data_TPHI_trap$relatedness)
+length(rela_data_TPHI_trap$seed_A)
+
+rela_data_TMER_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Turdus merula" & 
+                disperser_B == "Turdus merula")
+
+mean_within_trap_TMER<-mean(rela_data_TMER_trap$relatedness)
+se_within_trap_TMER<-sd(rela_data_TMER_trap$relatedness)
+length(rela_data_TMER_trap$seed_A)
+
+rela_data_VVUL_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Vulpes vulpes" & 
+                disperser_B == "Vulpes vulpes")
+
+mean_within_trap_VVUL<-mean(rela_data_VVUL_trap$relatedness)
+se_within_trap_VVUL<-sd(rela_data_VVUL_trap$relatedness)
+length(rela_data_VVUL_trap$seed_A)
+
+rela_data_SATR_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Sylvia atricapilla" & 
+                disperser_B == "Sylvia atricapilla")
+
+mean_within_trap_SATR<-mean(rela_data_SATR_trap$relatedness)
+se_within_trap_SATR<-sd(rela_data_SATR_trap$relatedness)
+length(rela_data_SATR_trap$seed_A)
+
+rela_data_CCHL_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Chloris chloris" & 
+                disperser_B == "Chloris chloris") 
+
+mean_within_trap_CCHL<-mean(rela_data_CCHL_trap$relatedness)
+se_within_trap_CCHL<-sd(rela_data_CCHL_trap$relatedness)
+length(rela_data_CCHL_trap$seed_A)
+
+rela_data_TILI_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Turdus iliacus" & 
+                disperser_B == "Turdus iliacus") 
+
+rela_data_TTOR_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A =="Turdus torquatus" & 
+                disperser_B == "Turdus torquatus") 
+
+mean_within_trap_TTOR<-mean(rela_data_TTOR_trap$relatedness)
+se_within_trap_TTOR<-sd(rela_data_TTOR_trap$relatedness)
+length(rela_data_TTOR_trap$seed_A)
+
+rela_data_CCYA_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A == "Cyanopica cyanus" & 
+                disperser_B == "Cyanopica cyanus") 
+
+mean_within_trap_CCYA<-mean(rela_data_CCYA_trap$relatedness)
+se_within_trap_CCYA<-sd(rela_data_CCYA_trap$relatedness)
+length(rela_data_CCYA_trap$seed_A)
+
+rela_data_CELA_trap<- subset(x = rela_data, 
+       subset = ind_A == ind_B  &
+                disperser_A == "Cervus elaphus" & 
+                disperser_B == "Cervus elaphus") 
+
+mean_within_trap_CELA<-mean(rela_data_CELA_trap$relatedness)
+se_within_trap_CELA<-sd(rela_data_CELA_trap$relatedness)
+length(rela_data_CELA_trap$seed_A)
+
+#Creating final dataframe within traps relatedness
+
+mean_rela_within_TRAP <- c(mean_within_trap_ERUB,mean_within_trap_TPHI,mean_within_trap_TMER,mean_within_trap_VVUL,mean_within_trap_SATR, mean_within_trap_CCHL,mean_within_trap_TTOR,mean_within_trap_CCYA,mean_within_trap_CELA)
+
+se_rela_within_TRAP <- c(se_within_trap_ERUB,se_within_trap_TPHI,se_within_trap_TMER,se_within_trap_VVUL,se_within_trap_SATR, se_within_trap_CCHL,se_within_trap_TTOR,se_within_trap_CCYA,se_within_trap_CELA)
+
+pairwise_comparations_within_trap<-c(length(rela_data_ERUB_trap$seed_A), length(rela_data_TPHI_trap$seed_A),length(rela_data_TMER_trap$seed_A),length(rela_data_VVUL_trap$seed_A),length(rela_data_SATR_trap$seed_A),length(rela_data_CCHL_trap$seed_A),length(rela_data_TTOR_trap$seed_A),length(rela_data_CCYA_trap$seed_A),length(rela_data_CELA_trap$seed_A))
+
+data_within_trap<-data.frame(names,mean_rela_within_TRAP,se_rela_within_TRAP,pairwise_comparations_within_trap)
+data_within_trap$pairwise_comparations_within_trap<-as.numeric(data_within_trap$pairwise_comparations_within_trap) #Data for table 1
+
+colnames(data_within_trap)[1]  <- "disperser"
+colnames(data_within_trap)[2]  <- "mean_rela_within_trap"
+colnames(data_within_trap)[3]  <- "se_rela_within_trap"
+colnames(data_within_trap)[4]  <- "pairwise_comparations_trap"
+```
+
+Relatedness among deposition sites within the same stand
+
+```{r among traps in a area}
+rela_data_ERUB_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Erithacus rubecula" & 
+                disperser_B == "Erithacus rubecula")
+
+mean_among_trap_ERUB<-mean(rela_data_ERUB_among_traps$relatedness)
+se_among_trap_ERUB<-sd(rela_data_ERUB_among_traps$relatedness)
+length(rela_data_ERUB_among_traps$seed_A)
+
+rela_data_TPHI_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Turdus philomelos" & 
+                disperser_B == "Turdus philomelos")
+
+mean_among_trap_TPHI<-mean(rela_data_TPHI_among_traps$relatedness)
+se_among_trap_TPHI<-sd(rela_data_TPHI_among_traps$relatedness)
+length(rela_data_TPHI_among_traps$seed_A)
+
+rela_data_TMER_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B  & area_A == area_B &
+                disperser_A =="Turdus merula" & 
+                disperser_B == "Turdus merula")
+
+mean_among_trap_TMER<-mean(rela_data_TMER_among_traps$relatedness)
+se_among_trap_TMER<-sd(rela_data_TMER_among_traps$relatedness)
+length(rela_data_TMER_among_traps$seed_A)
+
+rela_data_VVUL_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B  & area_A == area_B &
+                disperser_A =="Vulpes vulpes" & 
+                disperser_B == "Vulpes vulpes")
+
+mean_among_trap_VVUL<-mean(rela_data_VVUL_among_traps$relatedness)
+se_among_trap_VVUL<-sd(rela_data_VVUL_among_traps$relatedness)
+length(rela_data_VVUL_among_traps$seed_A)
+
+rela_data_SATR_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Sylvia atricapilla" & 
+                disperser_B == "Sylvia atricapilla")
+
+mean_among_trap_SATR<-mean(rela_data_SATR_among_traps$relatedness)
+se_among_trap_SATR<-sd(rela_data_SATR_among_traps$relatedness)
+length(rela_data_SATR_among_traps$seed_A)
+
+rela_data_CCHL_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B &  area_A == area_B &
+                disperser_A =="Chloris chloris" & 
+                disperser_B == "Chloris chloris")
+
+mean_among_trap_CCHL<-mean(rela_data_CCHL_among_traps$relatedness)
+se_among_trap_CCHL<-sd(rela_data_CCHL_among_traps$relatedness)
+length(rela_data_CCHL_among_traps$seed_A)
+
+rela_data_TILI_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Turdus iliacus" & 
+                disperser_B == "Turdus iliacus")
+
+mean_among_trap_TILI<-mean(rela_data_TILI_among_traps$relatedness)
+se_among_trap_TILI<-sd(rela_data_TILI_among_traps$relatedness)
+length(rela_data_TILI_among_traps$seed_A)
+
+rela_data_TTOR_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Turdus torquatus" & 
+                disperser_B == "Turdus torquatus")
+
+mean_among_trap_TTOR<-mean(rela_data_TTOR_among_traps$relatedness)
+se_among_trap_TTOR<-sd(rela_data_TTOR_among_traps$relatedness)
+length(rela_data_TTOR_among_traps$seed_A)
+
+rela_data_CCYA_among_traps<- subset(x = rela_data, 
+       subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Cyanopica cyanus" & 
+                disperser_B == "Cyanopica cyanus")
+
+mean_among_trap_CCYA<-mean(rela_data_CCYA_among_traps$relatedness)
+se_among_trap_CCYA<-sd(rela_data_CCYA_among_traps$relatedness)
+length(rela_data_CCYA_among_traps$seed_A)
+
+rela_data_CELA_among_traps<- subset(x = rela_data, 
+      subset = ind_A != ind_B & area_A == area_B &
+                disperser_A =="Cervus elaphus" & 
+                disperser_B == "Cervus elaphus")
+
+mean_among_trap_CELA<-mean(rela_data_CELA_among_traps$relatedness)
+se_among_trap_CELA<-sd(rela_data_CELA_among_traps$relatedness)
+length(rela_data_CELA_among_traps$seed_A)
+
+#Creating final dataframe among traps relatedness
+
+mean_rela_among_TRAP <- c(mean_among_trap_ERUB,mean_among_trap_TPHI,mean_among_trap_TMER,mean_among_trap_VVUL,mean_among_trap_SATR, mean_among_trap_CCHL,mean_among_trap_TTOR,mean_among_trap_CCYA,mean_among_trap_CELA)
+
+se_rela_among_TRAP <- c(se_among_trap_ERUB,se_among_trap_TPHI,se_among_trap_TMER,se_among_trap_VVUL,se_among_trap_SATR, se_among_trap_CCHL,se_among_trap_TTOR,se_among_trap_CCYA,se_among_trap_CELA)
+
+pairwise_comparations_among_trap<-c(length(rela_data_ERUB_among_traps$seed_A), length(rela_data_TPHI_among_traps$seed_A),length(rela_data_TMER_among_traps$seed_A),length(rela_data_VVUL_among_traps$seed_A),length(rela_data_SATR_among_traps$seed_A),length(rela_data_CCHL_among_traps$seed_A),length(rela_data_TTOR_among_traps$seed_A),length(rela_data_CCYA_among_traps$seed_A),length(rela_data_CELA_among_traps$seed_A))
+
+data_among_trap<-data.frame(names,mean_rela_among_TRAP,se_rela_among_TRAP,pairwise_comparations_among_trap)
+data_among_trap$pairwise_comparations_among_trap<-as.numeric(data_among_trap$pairwise_comparations_among_trap) #Data for Table 1
+
+colnames(data_among_trap)[1]  <- "disperser"
+colnames(data_among_trap)[2]  <- "mean_rela_among_TRAP"
+colnames(data_among_trap)[3]  <- "se_rela_among_TRAP"
+colnames(data_among_trap)[4]  <- "pairwise_comparations_among_trap"
+```
+
+# Unifying relatedness datasets
+
+```{r merging relatedness datasets}
+data_within_scat
+data_within_trap
+data_among_trap
+
+relatedness_results<-merge(data_within_scat,data_within_trap)
+relatedness_results<-merge(relatedness_results, data_among_trap)
+relatedness_results<-as.data.frame(relatedness_results)
+relatedness_results<-relatedness_results %>% dplyr::filter(disperser %in% c("Erithacus rubecola","Turdus merula", "Turdus philomelos", "Vulpes vulpes"))
+relatedness_results
+```
+# Until now i known maternal richness and relatedness per deposition site, i will estimate now the maternal redundancy (uPMI) based on Grivet et al (2005).
+
+
+
+```{r general table}
+library(dplyr)
+dataset_H<- dataset %>% group_by(ind, microhabitat, area) %>%  dplyr::summarise( n_seeds = n(),n_mothers = n_distinct(geno_profile))
+#hist(dataset_H$n_seeds)
+
+library(plotrix)
+dataset_HH<-ddply(dataset_H, .(area, microhabitat), summarize, mean_n_seeds=mean(n_seeds),SE_n_seeds= std.error(n_seeds),mean_n_mothers=mean(n_mothers),SE_n_mothers= std.error(n_mothers) )
+```
+
+##Estimating uPMI; (Grivet et al. 2005). Rgg para cada trampa
+
+# (Xgk*(Xgk*-1)
+
+# Ng\*(Ng-1)
+
+# Within each deposition site, is the sum of the number of seeds from each source tree (Xgk) multiplied by (Xgk-1). An the result divided by the number of sereds in the deposition site(Ng) \* (Ng-1)
+
+```{r estimating uPMI}
+dataset_I<- dataset %>% group_by(ind, microhabitat, area, geno_profile) %>%  dplyr::summarise( n_seeds_profile = n())
+mothers<-dataset_I %>% summarise(n_mothers = n_distinct(geno_profile))
+
+# Numerator
+column_nominador<- dataset_I$n_seeds_profile * (dataset_I$n_seeds_profile-1)
+dataset_II<-cbind(dataset_I,pmi_numerator = column_nominador)
+
+#Denominator
+column_denominador<- dataset_I %>% group_by(ind) %>% dplyr::summarise(n_seeds_total = sum(n_seeds_profile))
+
+column_denominador_dataset<-cbind(column_denominador, column_denominador$n_seeds_total * (column_denominador$n_seeds_total - 1))
+
+#Estimating uPMI
+dataset_III<-merge(dataset_II,column_denominador_dataset)
+colnames(dataset_III)[8] <-"pmi_denominator"
+fraction_uPMI<- dataset_III$pmi_numerator / dataset_III$pmi_denominator
+dataset_III<-cbind(dataset_III,fraction_uPMI)
+
+dataset_IIII<- dataset_III %>% group_by(ind, microhabitat,area) %>% dplyr:: summarise( uPMI = sum(fraction_uPMI)) # Here it is!
+
+#I do not used ALPHA in the manuscript
+#Estimating ALPHA diversity following (Scofield et al 2012) Rgg^-1. I t is also the Number of effective source trees
+dataset_IIIII<- cbind(dataset_IIII, alpha = dataset_IIII$uPMI^-1)  # Here it is!
+dataset_IIIII<-cbind(dataset_IIIII, column_denominador$n_seeds_total)
+colnames(dataset_IIIII)[6] <-"n_seeds_total"
+
+dataset_IIIII<-cbind(dataset_IIIII , mothers$n_mothers)
+colnames(dataset_IIIII)[7] <-"n_mothers"
+dataset_IIIII
+
+```
+# I unify the maternal components of the seed rain in a single dataset
+```{r}
+dataset_IIIII # data uPMI + ALPHA +n_seeds + n_mothers
+
+# Preparing relatednes per deposition site
+reltedness_trap_A<- subset(x = rela_data, 
+       subset = ind_A == ind_B)
+reltedness_trap<- reltedness_trap_A %>% group_by(area_A,mh_A, ind_A) %>% summarise( mean_relatedness = mean(relatedness))
+reltedness_trap<-as.data.frame(reltedness_trap)
+reltedness_trap$mean_relatedness<-as.numeric(reltedness_trap$mean_relatedness)
+reltedness_trap$ind_A<-as.character(reltedness_trap$ind_A)
+colnames(reltedness_trap)[1] <- "area"
+colnames(reltedness_trap)[2] <- "microhabitat"
+colnames(reltedness_trap)[3] <- "ind"
+
+reltedness_trap<-reltedness_trap[reltedness_trap$ind != "NA", ] # I remove here again the unlocalized V.vulpes sample 
+#Merging relatedness per point with dataset glm
+
+dataset_properties<-merge(dataset_IIIII, reltedness_trap)
+dataset_properties<-as.data.frame(dataset_properties)
+
+colnames(dataset_properties)[2] <- "mh"
+
+dataset_properties<-as.data.frame(dataset_properties)
+dataset_properties$mh<-as.factor(dataset_properties$mh)
+dataset_properties$area<-as.factor(dataset_properties$area)
+dataset_properties$uPMI<-as.numeric(dataset_properties$uPMI)
+dataset_properties$alpha<-as.numeric(dataset_properties$alpha)
+dataset_properties$n_seeds_total<-as.numeric(dataset_properties$n_seeds_total)
+dataset_properties$n_mothers<-as.numeric(dataset_properties$n_mothers)
+dataset_properties$mean_relatedness<-as.numeric(dataset_properties$mean_relatedness)
+
+
+dataset_properties_matrix<-select(dataset_properties,n_seeds_total, n_mothers, uPMI, alpha, mean_relatedness)
+dataset_properties_matrix<-dataset_properties_matrix[dataset_properties_matrix$n_seeds > 5, ] 
+
+#Test correlation among the number of seeds and the maternal components of the seed rain
+mt.cor<-cor(dataset_properties_matrix, method = "pearson")
+corrplot:: corrplot(mt.cor)
+```
+
+
+# Nested anova to test for differences among areas and mh in the marternal components of the seed rain
+
+```{r}
+#fit nested ANOVA for Maternal richness
+
+nest_mothers <- aov(dataset_properties$n_mothers ~ dataset_properties$area*dataset_properties$mh+  dataset_properties$area / factor(dataset_properties$mh))
+summary(nest_mothers)
+hist(nest_mothers$residuals) # Assumptions OK
+
+# Plotting 
+ggplot(dataset_properties, aes(x=mh, y=n_mothers, fill=mh)) +
+  geom_boxplot(alpha = 0.6, colour = "black") + scale_fill_manual(values = col_mh)  + theme_bw() + labs(y = "Maternal richness", x = "Area")
+
+tuk<- TukeyHSD(nest_mothers)
+tuk
+#plot(TukeyHSD(nest_mothers))
+```
+
+```{r}
+#fit nested ANOVA for relatedness
+
+nest_rela<- aov(dataset_properties$mean_relatedness ~ dataset_properties$area*dataset_properties$mh+  dataset_properties$area / factor(dataset_properties$mh))
+summary(nest_rela)
+#hist(nest_rela$residuals) # Assumptions OK
+
+# Plotting 
+ggplot(dataset_properties, aes(x=mh, y=mean_relatedness, fill=mh)) +
+  geom_boxplot(alpha = 0.6, colour = "black") + scale_fill_manual(values = col_mh)  + theme_bw() + labs(y = "Mean relatedness", x = "Area")
+
+tuk<- TukeyHSD(nest_rela)
+tuk
+#plot(TukeyHSD(nest_rela))
+```
+
+```{r}
+#fit nested ANOVA for Maternal redundancy (uPMI)
+
+nest_PMI<- aov(dataset_properties$uPMI ~ dataset_properties$area*dataset_properties$mh+  dataset_properties$area / factor(dataset_properties$mh))
+summary(nest_PMI)
+#hist(nest_rela$residuals) # Assumptions OK
+
+# Plotting 
+ggplot(dataset_properties, aes(x=mh, y=log(uPMI), fill=mh)) +
+  geom_boxplot(alpha = 0.6, colour = "black") + scale_fill_manual(values = col_mh)  + theme_bw() + labs(y = "log-uPMI", x = "Area")
+
+tuk<- TukeyHSD(nest_PMI)
+tuk
+#plot(TukeyHSD(nest_PMI))
+```
+
+
+# Preparing dataset for CCA
+```{r}
+# Histograms of dependent variables
+hist(dataset_properties$n_seeds_total)
+hist(dataset_properties$n_mothers)
+hist(dataset_properties$uPMI)
+hist(dataset_properties$mean_relatedness)
+
+
+#Contribution of each species tu each microhabitat
+dataset_R  <-dataset %>% group_by(ind,disperser,area, microhabitat) %>% dplyr::summarise(n_seeds = n())
+dataset_R<-select(dataset_R, ind, n_seeds,-area)
+
+dataset_R<-pivot_wider(dataset_R, names_from = disperser, values_from = n_seeds)
+dataset_R <- dataset_R %>% drop_na(ind)
+dataset_R[is.na(dataset_R)] <- 0
+
+
+dataset_cca<-dataset_properties %>% left_join(dataset_R, by = "ind")
+dataset_cca<-select(dataset_cca,-area.y)
+colnames(dataset_cca)[3] <- "area"
+dataset_cca<-as.data.frame(dataset_cca)
+
+dataset_cca<-as.data.frame(dataset_cca)
+
+#write.csv(dataset_cca, file = "dataset_cca.csv")
+```
+
+#Generating figure of frugivore progenies accumulation per area (Figure S4)
+
+```{r}
+dataset_K_CYA<-dataset %>% filter( area == "SABCOL" & disperser %in% "Cyanopica cyanus")
+CYA_GENO<-n_distinct(dataset_K_CYA$geno_profile)
+
+dataset_K_TIL<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus"))
+TIL_GENO<-n_distinct(dataset_K_TIL$geno_profile)
+
+dataset_K_SAT<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla"))
+SAT_GENO<-n_distinct(dataset_K_SAT$geno_profile)
+
+dataset_K_TTOR<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus"))
+TTOR_GENO<-n_distinct(dataset_K_TTOR$geno_profile)
+
+dataset_K_CELA<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus"))
+CELA_GENO<-n_distinct(dataset_K_CELA$geno_profile)
+
+dataset_K_CHL<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris"))
+CHL_GENO<-n_distinct(dataset_K_CHL$geno_profile)
+
+dataset_K_ERI<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula"))
+ERI_GENO<-n_distinct(dataset_K_ERI$geno_profile)
+
+dataset_K_MER<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula"))
+MER_GENO<-n_distinct(dataset_K_MER$geno_profile)
+
+dataset_K_VUL<-dataset %>% filter( area == "SABCOL" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes"))
+VUL_GENO<-n_distinct(dataset_K_VUL$geno_profile)
+
+dataset_K_PHI<-dataset %>% filter( area == "SABCOL" & disperser  %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes", "Turdus philomelos"))
+PHI_GENO<-n_distinct(dataset_K_PHI$geno_profile)
+
+NO_FRU<-0
+Vector_COL<-c(NO_FRU,CYA_GENO,TIL_GENO,SAT_GENO,TTOR_GENO,CELA_GENO, CHL_GENO,ERI_GENO, MER_GENO, VUL_GENO,PHI_GENO)
+
+dataset_K_CYA<-dataset %>% filter( area == "SABOJI" & disperser %in% "Cyanopica cyanus")
+CYA_GENO<-n_distinct(dataset_K_CYA$geno_profile)
+
+dataset_K_TIL<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus"))
+TIL_GENO<-n_distinct(dataset_K_TIL$geno_profile)
+
+dataset_K_SAT<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla"))
+SAT_GENO<-n_distinct(dataset_K_SAT$geno_profile)
+
+dataset_K_TTOR<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus"))
+TTOR_GENO<-n_distinct(dataset_K_TTOR$geno_profile)
+
+dataset_K_CELA<-dataset %>% filter( area == "SABOJI" & disperser  %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus"))
+CELA_GENO<-n_distinct(dataset_K_CELA$geno_profile)
+
+dataset_K_CHL<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris"))
+CHL_GENO<-n_distinct(dataset_K_CHL$geno_profile)
+
+dataset_K_ERI<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula"))
+ERI_GENO<-n_distinct(dataset_K_ERI$geno_profile)
+
+dataset_K_MER<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula"))
+MER_GENO<-n_distinct(dataset_K_MER$geno_profile)
+
+dataset_K_VUL<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes"))
+VUL_GENO<-n_distinct(dataset_K_VUL$geno_profile)
+
+dataset_K_PHI<-dataset %>% filter( area == "SABOJI" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes", "Turdus philomelos"))
+PHI_GENO<-n_distinct(dataset_K_PHI$geno_profile)
+
+NO_FRU<-0
+Vector_OJI<-c(NO_FRU,CYA_GENO,TIL_GENO,SAT_GENO,TTOR_GENO,CELA_GENO, CHL_GENO,ERI_GENO, MER_GENO, VUL_GENO,PHI_GENO)
+
+
+dataset_K_CYA<-dataset %>% filter( area == "SABMAR" %in% "Cyanopica cyanus")
+CYA_GENO<-n_distinct(dataset_K_CYA$geno_profile)
+
+dataset_K_TIL<-dataset %>% filter( area == "SABMAR" %in% c("Cyanopica cyanus","Turdus iliacus"))
+TIL_GENO<-n_distinct(dataset_K_TIL$geno_profile)
+
+dataset_K_SAT<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla"))
+SAT_GENO<-n_distinct(dataset_K_SAT$geno_profile)
+
+dataset_K_TTOR<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus"))
+TTOR_GENO<-n_distinct(dataset_K_TTOR$geno_profile)
+
+dataset_K_CELA<-dataset %>% filter( area == "SABMAR" & disperser  %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus"))
+CELA_GENO<-n_distinct(dataset_K_CELA$geno_profile)
+
+dataset_K_CHL<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris"))
+CHL_GENO<-n_distinct(dataset_K_CHL$geno_profile)
+
+dataset_K_ERI<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula"))
+ERI_GENO<-n_distinct(dataset_K_ERI$geno_profile)
+
+dataset_K_MER<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula"))
+MER_GENO<-n_distinct(dataset_K_MER$geno_profile)
+
+dataset_K_VUL<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes"))
+VUL_GENO<-n_distinct(dataset_K_VUL$geno_profile)
+
+dataset_K_PHI<-dataset %>% filter( area == "SABMAR" & disperser %in% c("Cyanopica cyanus","Turdus iliacus","Sylvia atricapilla","Turdus torquatus","Cervus elaphus","Chloris chloris", "Erithacus rubecula", "Turdus merula", "Vulpes vulpes", "Turdus philomelos"))
+PHI_GENO<-n_distinct(dataset_K_PHI$geno_profile)
+
+NO_FRU<-0
+Vector_MAR<-c(NO_FRU,CYA_GENO,TIL_GENO,SAT_GENO,TTOR_GENO,CELA_GENO, CHL_GENO,ERI_GENO, MER_GENO, VUL_GENO,PHI_GENO)
+
+Vector_COL
+Vector_OJI
+Vector_MAR
+
+
+first_column <- c("SABCOL","SABCOL","SABCOL", "SABCOL", "SABCOL", "SABCOL","SABCOL", "SABCOL","SABCOL", "SABCOL","SABCOL","SABOJI","SABOJI", "SABOJI","SABOJI","SABOJI","SABOJI","SABOJI","SABOJI","SABOJI","SABOJI","SABOJI","SABMAR","SABMAR", "SABMAR", "SABMAR", "SABMAR", "SABMAR","SABMAR","SABMAR","SABMAR", "SABMAR", "SABMAR")
+second_column <- c(Vector_COL, Vector_OJI,Vector_MAR)
+third_column<- c("no", "Cyanopica cyanus", "Turdus iliacus", "Sylvia atricapilla", "Turdus torquatus","Cervus elaphus", "Chloris chloris","Erithacus rubecula", "Turdus merula","Vulpes vulpes", "Turdus philomelos", "no","Cyanopica cyanus", "Turdus iliacus", "Sylvia atricapilla", "Turdus torquatus","Cervus elaphus", "Chloris chloris","Erithacus rubecula", "Turdus merula","Vulpes vulpes", "Turdus philomelos","no","Cyanopica cyanus", "Turdus iliacus", "Sylvia atricapilla", "Turdus torquatus","Cervus elaphus", "Chloris chloris","Erithacus rubecula", "Turdus merula","Vulpes vulpes", "Turdus philomelos")
+
+dataset_KK <- data.frame(first_column, second_column,third_column )
+dataset_KK$third_column = factor(dataset_KK$third_column,c("no", "Cyanopica cyanus", "Turdus iliacus", "Sylvia atricapilla", "Turdus torquatus","Cervus elaphus", "Chloris chloris","Erithacus rubecula", "Turdus merula","Vulpes vulpes", "Turdus philomelos"))
+
+col_area <- c("SABCOL"="#ccd5ae", "SABOJI"="#588157", "SABMAR"="#344e41")
+legend_title <- "AREA"
+
+ggplot(dataset_KK, aes(x = third_column, y = second_column, color = first_column, group = first_column)) + 
+  geom_point() + geom_line()+ theme(axis.text = element_text(angle = 30))+ theme_bw()+ labs(y = "ACCUMULATED MOTHER RICHNES", x = "FRUGIVORE SPECIES")+ scale_colour_manual(values = col_area) + theme(axis.text.x=element_text(angle=30, hjust=1))
+```
+ # Geneating figure of progenies proportion per stand and colours for shared progenies (Mondrian plots, Figure S2)
+```{r}
+library(ggalluvial)
+# create a dataset
+
+#COL
+dataset_Z<- dataset %>% group_by(ind, microhabitat, area, geno_profile) %>%  dplyr::summarise( n_seeds_profile = n())
+#mothers<-dataset_I %>% summarise(n_mothers = n_distinct(geno_profile))
+dataset_Z$n_seeds_profile<-as.numeric(dataset_Z$n_seeds_profile)
+dataset_Z$geno_profile<-as.factor(dataset_Z$geno_profile)
+
+dataset_Z_COL<-filter(dataset_Z, area =="SABCOL")
+dataset_Z_COL_NOOA<-filter(dataset_Z_COL, microhabitat != "OA")
+
+# Stacked + percent
+
+ele_COL <- dataset_Z_COL_NOOA %>%
+  group_by(geno_profile) %>%
+  mutate(n_rep = n()) %>%
+  mutate(color = ifelse(n_rep > 1, paste0(geno_profile), NA))
+
+COL_shadow<-ggplot(ele_COL, aes(y=n_seeds_profile, x=ind, fill = color)) + 
+    geom_bar(position="fill", stat="identity", color = "black")+ theme(axis.text.x=element_text(angle=30, hjust=1))
+
+#OJI
+
+
+dataset_Z_COL<-filter(dataset_Z, area =="SABOJI")
+dataset_Z_COL_NOOA<-filter(dataset_Z_COL, microhabitat != "OA")
+
+# Stacked + percent
+
+ele_OJI <- dataset_Z_COL_NOOA %>%
+  group_by(geno_profile) %>%
+  mutate(n_rep = n()) %>%
+  mutate(color = ifelse(n_rep > 1, paste0(geno_profile), NA))
+
+OJI_shadow<-ggplot(ele_OJI, aes(y=n_seeds_profile, x=ind, fill = color)) + 
+    geom_bar(position="fill", stat="identity", color = "black")+ theme(axis.text.x=element_text(angle=30, hjust=1))
+
+#MAR
+
+
+dataset_Z_COL<-filter(dataset_Z, area =="SABMAR")
+dataset_Z_COL_NOOA<-filter(dataset_Z_COL, microhabitat != "OA")
+
+
+ele_MAR <- dataset_Z_COL_NOOA %>%
+  group_by(geno_profile) %>%
+  mutate(n_rep = n()) %>%
+  mutate(color = ifelse(n_rep > 1, paste0(geno_profile), NA))
+
+MAR_shadow<-ggplot(ele_MAR, aes(y=n_seeds_profile, x=ind, fill = color)) + 
+    geom_bar(position="fill", stat="identity", color = "black")+ theme(axis.text.x=element_text(angle=30, hjust=1))
+
+
+ggarrange(MAR_shadow,OJI_shadow,COL_shadow)
+```
+
+# The last step is to perform CCA analysis to study wether frugivore species determine the maternal components of the seed rain.
+
+#Loading packages for CCA
+```{r loading CCA packages}
+require(GGally)
+library(CCP)
+require(CCA)
+library(candisc)
+library(readr)
+```
+#Loading CCA data
+```{r}
+dataset_cca <- read_csv("dataset_cca.csv")
+dataset_cca<-dataset_cca[,-1]
+
+properties_data<- dataset_cca [,c(4,7,8)] # I not included alpha because I have some infinite values.
+frugivores_data<-dataset_cca [,c(9,10,11,12,13)]
+```
+
+### Evaluate collinearity by VIF
+
+We are setting a strict threshold of `thresh= 2`
+
+```{r collinearity}
+# Evaluate Collinearity
+require(VIF)
+
+source("vif_function.R") # Variance Inflation Factor (VIF) R function from https://github.com/PJordano-Lab/MS_Florencia Florencia M. et al 2017
+
+vif_func(in_frame= frugivores_data, thresh=2, trace=T)
+
+# GREAT! As expected, there is no multicollinearity between predictor variables (frugivores)
+```
+
+#### We’ll look at the correlations within and between the two sets of variables using the matcor function from the CCA package.
+
+##### http://www.statisticssolutions.com/table-of-critical-values-pearson-correlation/
+
+```{r correlations, echo= TRUE, message= TRUE, warning= TRUE}
+correl<-matcor(properties_data, frugivores_data)
+
+img.matcor(correl)
+img.matcor(correl,type=2)
+```
+
+#### The function cc performs Canonical Correlation Analysis to highlight correlations between the two original data sets
+
+#### The canonical squared correlation coefficients represent the proportion of the total variance explained by each pair of canonical variables. 
+
+```{r corr coefficients, echo= TRUE, message= TRUE, warning= TRUE}
+cc<-cc(properties_data, frugivores_data)
+cc
+cc$cor # display the canonical correlations. I found a very strong correlation in the fist dimension
+cc[3:4] # raw canonical coefficients. Canonical Weights 
+```
+
+In general, the number of canonical dimensions is equal to the number of variables in the smaller set; however, the number of significant dimensions may be even smaller. 
+# Florencia way
+```{r}
+
+ev <- (1 - cc$cor^2)
+
+n <- dim(properties_data)[1]
+p <- length(properties_data)
+q <- length(frugivores_data)
+k <- min(p, q)
+m <- n - 3/2 - (p + q)/2
+
+w <- rev(cumprod(rev(ev)))
+
+# initialize
+d1 <- d2 <- f <- vector("numeric", k)
+
+for (i in 1:k) {
+    s <- sqrt((p^2 * q^2 - 4)/(p^2 + q^2 - 5))
+    si <- 1/s
+    d1[i] <- p * q
+    d2[i] <- m * s - p * q/2 + 1
+    r <- (1 - w[i]^si)/w[i]^si
+    f[i] <- r * d2[i]/d1[i]
+    p <- p - 1
+    q <- q - 1
+}
+
+pv <- pf(f, d1, d2, lower.tail = F, log.p=F)
+(dmat <- cbind(WilksL = w, F = f, df1 = d1, df2 = d2, p = pv)) # Just the first canonical dimension is significative
+```
+
+#Plotting CCA
+```{r}
+plt.cc (cc, d1 = 1, d2= 2,var.label = FALSE, int = 0.5, type = "b", Xnames = TRUE, Ynames = NULL)
+
+plt.cc (cc, d1 = 1, d2= 2,var.label = TRUE, int = 0.5, type = "i", ind.names = dataset_cca$ind, Xnames = NULL, Ynames = NULL)
+```
+
+# Redundancy
+```{r}
+can_redun<-candisc::redundancy(candisc::cancor(properties_data,frugivores_data))
+print(can_redun)
+can_redun$Xcan.redun # The firtst canonical variable tell us that the 41.4% of the total variance in 7 (maternla components) is explained by X (frugivores data).
+```
+
+```{r}
+library(candisc)
+cc_R2 <- cancor(properties_data,frugivores_data)
+cc_R2 # CanRSQ represents 
+```
+
+```{r}
+cc_comput<-comput(properties_data,frugivores_data,cc)
+cc_comput[3:6]
+```
