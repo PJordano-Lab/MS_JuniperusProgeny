@@ -42,7 +42,7 @@ library(iNEXT)
 # I load the database with seeds and genotyped plants to group them in "genetic profiles". This dataset contains the multilocus genotypes of all dispersed seeds plus 105 samples corresponding to mother trees to facilitate progeny assignments. The same 12 polymorphic markers were used for the seed genotype (seed endocarp) and for the mother plant genotype (leaf tissue). The data of the mother plants are useful especially in the case of seeds found under focal deposition sites and to consider the closest junipers neighborhood.
 
 ```{r data loading}
-seeds_trees <- read.csv("seeds_trees.csv", sep=";")
+seeds_trees <- read.csv("~/Documents/GitHub/MS_JuniperusProgeny/Data/seeds_trees.csv", sep=";")
 ```
 
 # Prepare a dataset for use with allelematch
@@ -67,15 +67,15 @@ amUniqueProfile(am_seeds_trees, doPlot=TRUE)
 ```{r Identification of unique genotypes}
 unique_seeds_trees <- amUnique(am_seeds_trees, alleleMismatch=2) # I set a conservative allele Mismatch of 2 for `group´ assignation
 summary(unique_seeds_trees, html =TRUE)  # .html generation for results visualization
-#summary(unique_seeds_trees, csv = "seeds_trees_groups_2_mismatch.csv") # .csv generation for results save
+#summary(unique_seeds_trees, csv = "seeds_trees_groups_2_mismatch.csv") # .csv generation for results save (Move this file to `data´folder manually!)
 ```
 
-This is the end of the computed genetic profile assignment. These results are reviewed and resequenced. Once obtained and named the genetic profiles to which each seed belongs, they will be manually entered into a new dataset together with the seed origin traits (stand-microhabitat-frugivore-deposition site, etc) for further analysis. This dataset is named full_datast.csv in the GitHub repository
+This is the end of the computed genetic profile assignment. These results are reviewed and resequenced. Once obtained and named the genetic profiles to which each seed belongs, they will be manually entered into a new dataset (also removing trees) together with the seed origin traits (stand-microhabitat-frugivore-deposition site, etc) for further analysis. This dataset is named full_datast.csv in the GitHub repository
 
 #I load a new dataset with all the information of each seed, in this dataset the trees do not appear anymore.
 
 ```{r New data input and cleaning}
-dataset <- read_delim("full_dataset.csv", 
+dataset <- read_delim("~/Documents/GitHub/MS_JuniperusProgeny/Data/full_dataset.csv", 
     delim = ";", escape_double = FALSE, trim_ws = TRUE) # Loading dataset
 dataset<-tibble::column_to_rownames(dataset, var = "seed_code") #Column to row names
 #names(dataset)
@@ -83,7 +83,7 @@ dataset<-dataset[,c(25:45)] # I delate LOCI data
 #names(dataset)
 dataset<-dataset[,-c(6,7,8,9,10,11,12,13,15,16,17,18,19,21)] # I remove lab notes and unsuefull data
 #names(dataset)
-dataset <- dataset %>% drop_na(ind) # I remove unlocalised V.vulpes sample :(. I genotyped 25 seeds from a fox sample (labcode = 3041, Stand = SABOJI, Microhabitat = OA, Disperser = V. vulpes, Deposition site = UNKNOWN), and I don't know where I collected it so I have to eliminate it from the analysis. Finally, we will have 1000 seeds available for analysis. 
+dataset <- dataset %>% drop_na(ind) # I remove unlocalized V.vulpes sample :(. I genotyped 25 seeds from a fox sample (labcode = 3041, Stand = SABOJI, Microhabitat = OA, Disperser = V. vulpes, Deposition site = UNKNOWN), and I don't know where I collected it so I have to remove it from the analysis. Finally, we will have 1000 seeds available for analysis. 
 
 # Colum type modifications
 dataset<-as.data.frame(dataset) # Creata a data frame object
@@ -107,7 +107,7 @@ n_distinct(dataset$geno_profile) # Number of different contributing mothers
 n_distinct(dataset$labcode) # Number of feces
 ```
 
-#Patterns of seed rain across AREAS-MH-Frugivores:
+#Patterns of seed rain across AREAS-MH-Frugivores: # Figure 3 creation
 
 ```{r Patterns of seed rain across AREAS-MH-FRUGIVORES-A}
 # Creating datasets for general questions about the distribution of seeds and maternal progenies in the seed rain. I used this results in Table 1.
@@ -178,7 +178,7 @@ p3<-ggplot(dataset_AAAAAAAA, aes(fill=disperser, y=n_seeds, x=ind)) +
         strip.text = element_text(face="bold", size=rel(1.2)))
 
 ggarrange(p1,p2,p3 ,ncol =1,nrow = 3,
-          common.legend = FALSE, legend = "bottom",widths = c(1, 1),heights =c(3,3)) # Figure creation
+          common.legend = FALSE, legend = "bottom",widths = c(1, 1),heights =c(3,3)) # Figure 3 creation
 ```
 
 #Chi 2 test for independence of AREA by frugivores
@@ -477,7 +477,7 @@ assoc(head(dt4, 10), shade = TRUE, las=3)
 #Spatial pattern of genotyped seeds across MICROHABITAT 
 # Not used in the manuscript!
 ```{r Patterns of seed rain across AREAS-MH}
-coord <- read_delim("coord.csv", 
+coord <- read_delim("~/Documents/GitHub/MS_JuniperusProgeny/Data/coord.csv", 
     delim = ",", escape_double = FALSE, trim_ws = TRUE) #Loading locations dataset of focal deposition sites
 
 dataset<-dataset%>% left_join(coord) # merge coords with general dataset
@@ -507,11 +507,11 @@ ggarrange(p5,p4,p3,ncol = 3, common.legend = TRUE, legend = "right",widths = 1,
   heights = 0.2)
 ```
 
-#  All the deposition sites
+#  # Figure 2A Creation
 
 ```{r}
 #Loading locations dataset
-data_seedrain <- read_delim("seed_rain_raw.csv", 
+data_seedrain <- read_delim("~/Documents/GitHub/MS_JuniperusProgeny/Data/seed_rain_raw.csv", 
     delim = ";", escape_double = FALSE, trim_ws = TRUE) # Loading data of seed rain (nº seeds per deposition site and nº seeds/m2)
 
 data_seedrain<-as.data.frame(data_seedrain)
@@ -572,6 +572,7 @@ p3_seedrain<-ggplot() +
 ggarrange(p3_seedrain,p2_seedrain,p1_seedrain,ncol = 3, common.legend = TRUE, legend = "right",widths = 1,heights = 0.2) # Figure 2A
 ```
 Spatial distribution of dispersed seeds per frugivore per stand
+# Figure S1 creation
 ```{r Patterns of seed rain across AREAS-MH-FRUGIVORES}
 #Erithacus rubecula
 dataset_B_COL_ERUB<- filter(dataset_B_COL, disperser =="Erithacus rubecula")
@@ -724,13 +725,6 @@ hist(data_seedrain$seed_density_m2) # 0 inflated because Open Area transects
 data_seedrain$area <- factor(data_seedrain$area, levels = c("SABMAR", "SABOJI", "SABCOL")) 
 data_seedrain$mh <- factor(data_seedrain$mh, levels = c("PP", "JP", "FF","NF","OA")) 
 
-# Lets check the distribution without OA deposition sites
-data_seedrain_NOOA<- filter(data_seedrain, mh !="OA")
-data_seedrain_NOOA<-as.data.frame(data_seedrain_NOOA)
-hist(data_seedrain_NOOA$seed_density_m2) # Poisson
-data_seedrain_NOOA$area <- factor(data_seedrain_NOOA$area, levels = c("SABMAR", "SABOJI", "SABCOL"))
-data_seedrain_NOOA$mh <- factor(data_seedrain_NOOA$mh, levels = c("PP", "JP", "FF","NF","OA"))
-
 # Box-plots to understand variations in seed rain density:
 # Among AREAS
 ggplot(data_seedrain, aes(x = area, y = seed_density_m2))  +geom_boxplot(show.legend = F, varwidth =TRUE, width = 0.25, alpha = 0) +
@@ -777,7 +771,6 @@ dataset_D
 
 dataset_D<-dcast(dataset_D, seed ~ geno_profile)
 dataset_D[is.na(dataset_D)] <- 0
-dataset_D <- select(dataset_D, -seed)
 dataset_D[dataset_D>1] <- 1
 
 #Area splitting
@@ -797,7 +790,7 @@ dataset_D_COL<-as.data.frame(dataset_D_COL)
 dataset_D_COL<-dcast(dataset_D_COL, seed ~ geno_profile)
 dataset_D_COL[is.na(dataset_D_COL)] <- 0
 dataset_D_COL[dataset_D_COL>1] <- 1
-dataset_D_COL <- select(dataset_D_COL, -seed)
+dataset_D_COL <- dplyr::select(dataset_D_COL, -seed)
 #oji
 dataset_D_OJI<-cbind(dataset_OJI$geno_profile, c(1:369))
 dataset_D_OJI<-as.data.frame(dataset_D_OJI)
@@ -809,7 +802,7 @@ dataset_D_OJI<-as.data.frame(dataset_D_OJI)
 dataset_D_OJI<-dcast(dataset_D_OJI, seed ~ geno_profile)
 dataset_D_OJI[is.na(dataset_D_OJI)] <- 0
 dataset_D_OJI[dataset_D_OJI>1] <- 1
-dataset_D_OJI <- select(dataset_D_OJI, -seed)
+dataset_D_OJI <- dplyr::select(dataset_D_OJI, -seed)
 
 #mar
 dataset_D_MAR<- cbind(dataset_MAR$geno_profile, c(1:314))
@@ -822,7 +815,7 @@ dataset_D_MAR<-as.data.frame(dataset_D_MAR)
 dataset_D_MAR<-dcast(dataset_D_MAR, seed ~ geno_profile)
 dataset_D_MAR[is.na(dataset_D_MAR)] <- 0
 dataset_D_MAR[dataset_D_MAR>1] <- 1
-dataset_D_MAR <- select(dataset_D_MAR, -seed)
+dataset_D_MAR <- dplyr::select(dataset_D_MAR, -seed)
 
 
 
@@ -897,6 +890,8 @@ dataset_FF<- filter(dataset, microhabitat =="FF")
 dataset_NF<- filter(dataset, microhabitat =="NF")
 dataset_OA<- filter(dataset, microhabitat =="OA")
 
+
+require(dplyr)
 #JP
 dataset_D_JP<- cbind(dataset_JP$geno_profile, c(1:287))
 dataset_D_JP<-as.data.frame(dataset_D_JP)
@@ -908,7 +903,7 @@ dataset_D_JP<-as.data.frame(dataset_D_JP)
 dataset_D_JP<-dcast(dataset_D_JP, seed ~ geno_profile)
 dataset_D_JP[is.na(dataset_D_JP)] <- 0
 dataset_D_JP[dataset_D_JP>1] <- 1
-dataset_D_JP <- select(dataset_D_JP, -seed)
+dataset_D_JP <- dplyr::select(dataset_D_JP, -seed)
 
 #PP
 dataset_D_PP<- cbind(dataset_PP$geno_profile, c(1:290))
@@ -921,7 +916,7 @@ dataset_D_PP<-as.data.frame(dataset_D_PP)
 dataset_D_PP<-dcast(dataset_D_PP, seed ~ geno_profile)
 dataset_D_PP[is.na(dataset_D_PP)] <- 0
 dataset_D_PP[dataset_D_PP>1] <- 1
-dataset_D_PP <- select(dataset_D_PP, -seed)
+dataset_D_PP <- dplyr::select(dataset_D_PP, -seed)
 
 #FF
 dataset_D_FF<- cbind(dataset_FF$geno_profile, c(1:94))
@@ -934,7 +929,7 @@ dataset_D_FF<-as.data.frame(dataset_D_FF)
 dataset_D_FF<-dcast(dataset_D_FF, seed ~ geno_profile)
 dataset_D_FF[is.na(dataset_D_FF)] <- 0
 dataset_D_FF[dataset_D_FF>1] <- 1
-dataset_D_FF <- select(dataset_D_FF, -seed)
+dataset_D_FF <- dplyr::select(dataset_D_FF, -seed)
 
 #NF
 dataset_D_NF<- cbind(dataset_NF$geno_profile, c(1:173))
@@ -947,7 +942,7 @@ dataset_D_NF<-as.data.frame(dataset_D_NF)
 dataset_D_NF<-dcast(dataset_D_NF, seed ~ geno_profile)
 dataset_D_NF[is.na(dataset_D_NF)] <- 0
 dataset_D_NF[dataset_D_NF>1] <- 1
-dataset_D_NF <- select(dataset_D_NF, -seed)
+dataset_D_NF <- dplyr::select(dataset_D_NF, -seed)
 
 #OA
 dataset_D_OA<- cbind(dataset_OA$geno_profile, c(1:156))
@@ -960,33 +955,7 @@ dataset_D_OA<-as.data.frame(dataset_D_OA)
 dataset_D_OA<-dcast(dataset_D_OA, seed ~ geno_profile)
 dataset_D_OA[is.na(dataset_D_OA)] <- 0
 dataset_D_OA[dataset_D_OA>1] <- 1
-dataset_D_OA <- select(dataset_D_OA, -seed)
-
-#Computing specaccum 
-
-require(vegan)
-#sp_JP <- specaccum(dataset_D_JP, "random",permutations=1000)
-#sp_PP <- specaccum(dataset_D_PP, "random",permutations=1000)
-#sp_NF <- specaccum(dataset_D_NF, "random",permutations=1000)
-#sp_FF <- specaccum(dataset_D_FF, "random",permutations=1000)
-#sp_OA <- specaccum(dataset_D_OA, "random",permutations=1000)
-
-
-#plot(sp_JP, ci.type="polygon",col="#555555", lwd=2, ci.lty=0,  xlim = c(0, 300),ylim = c(0, 300),
-   #  ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-   #  xlab="Number of dispersed seeds", main="Maternal accumulation in JP")
-#plot(sp_PP, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
-    # ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-   #  xlab="Number of dispersed seeds", main="Maternal accumulation in PP")
-#plot(sp_NF, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
-    # ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-    # xlab="Number of dispersed seeds", main="Maternal accumulation in NF")
-#plot(sp_FF, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of dispersed seeds", main="Maternal accumulation in FF")
-#plot(sp_OA, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = #c(0, 300),ylim = c(0, 300),
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of dispersed seeds", main="Maternal accumulation in OA")
+dataset_D_OA <- dplyr::select(dataset_D_OA, -seed)
 ```
 
 ```{r}
@@ -1062,34 +1031,11 @@ dataset_REM[dataset_REM>1] <- 1
 
 
 
-dataset_ERUB <- select(dataset_ERUB, -seed)
-dataset_TPHI <- select(dataset_TPHI, -seed)
-dataset_TMER <- select(dataset_TMER, -seed)
-dataset_VVUL <- select(dataset_VVUL, -seed)
-dataset_REM <- select(dataset_REM, -seed)
-
-require(vegan)
-#sp_ERUB <- specaccum(dataset_ERUB, "random",permutations=1000)
-#sp_TPHI <- specaccum(dataset_TPHI, "random",permutations=1000)
-#sp_TMER <- specaccum(dataset_TMER, "random",permutations=1000)
-#sp_VVUL <- specaccum(dataset_VVUL, "random",permutations=1000)
-#sp_REM  <- specaccum(dataset_REM , "random",permutations=1000)
-
-#plot(sp_ERUB, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100), 
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of seeds", main="Maternal accumulation for Erithacus rubecula")
-#plot(sp_TPHI, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 700),ylim = c(0, 700),  
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of seeds", main="Maternal accumulation for Turdus philomelos")
-#plot(sp_TMER, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of seeds", main="Maternal accumulation for Turdus merula")
-#plot(sp_VVUL, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of seeds", main="Maternal accumulation for Vulpes vulpes")
-#plot(sp_REM, ci.type="polygon",col="#555555", lwd=2, ci.lty=0, xlim = c(0, 100),ylim = c(0, 100),  
-#     ci.col=rgb(0.33,0.33,0.33,.2), ylab="Mothers richness", 
-#     xlab="Number of seeds", main="Maternal accumulation for Remaining species")
+dataset_ERUB <- dplyr::select(dataset_ERUB, -seed)
+dataset_TPHI <- dplyr::select(dataset_TPHI, -seed)
+dataset_TMER <- dplyr::select(dataset_TMER, -seed)
+dataset_VVUL <- dplyr::select(dataset_VVUL, -seed)
+dataset_REM <- dplyr::select(dataset_REM, -seed)
 ```
 
 ```{r}
@@ -1294,7 +1240,7 @@ ggarrange(plot_area_iNEXT,plot_mh_iNEXT,plot_FRU_iNEXT) # Figure  S3
 # Now, I will explore the maternal properties related to kinship. For this I load the relatedness dataset between the maternal genotypes of the seeds. These values are closer to 1 the more similar the genotype between seed pairs. I calculated them following the method proposed by Queller and Goodnight (1989) in GenAlex. 
 
 ```{r data loading}
-matrix <- read_delim("relatedness_matrix.csv", 
+matrix <- read_delim("~/Documents/GitHub/MS_JuniperusProgeny/Data/relatedness_matrix.csv", 
     delim = ";", escape_double = FALSE, trim_ws = TRUE) # Queller and Goodnight (1989)  relatedness estimator - Mean. // Cumputed by GenAlex
 
 # Colappsing attributes for retain in the name
@@ -1723,11 +1669,11 @@ relatedness_results
 
 
 ```{r general table}
-library(dplyr)
-dataset_H<- dataset %>% group_by(ind, microhabitat, area) %>%  dplyr::summarise( n_seeds = n(),n_mothers = n_distinct(geno_profile))
-#hist(dataset_H$n_seeds)
 
-library(plotrix)
+dataset_H<- dataset %>% group_by(ind, microhabitat, area) %>%  dplyr::summarise( n_seeds = n(),n_mothers = n_distinct(geno_profile))
+hist(dataset_H$n_seeds)
+
+
 dataset_HH<-ddply(dataset_H, .(area, microhabitat), summarize, mean_n_seeds=mean(n_seeds),SE_n_seeds= std.error(n_seeds),mean_n_mothers=mean(n_mothers),SE_n_mothers= std.error(n_mothers) )
 ```
 
@@ -1875,7 +1821,7 @@ hist(dataset_properties$mean_relatedness)
 
 #Contribution of each species tu each microhabitat
 dataset_R  <-dataset %>% group_by(ind,disperser,area, microhabitat) %>% dplyr::summarise(n_seeds = n())
-dataset_R<-select(dataset_R, ind, n_seeds,-area)
+dataset_R<-dplyr::select(dataset_R, ind, n_seeds,-area)
 
 dataset_R<-pivot_wider(dataset_R, names_from = disperser, values_from = n_seeds)
 dataset_R <- dataset_R %>% drop_na(ind)
@@ -1883,13 +1829,11 @@ dataset_R[is.na(dataset_R)] <- 0
 
 
 dataset_cca<-dataset_properties %>% left_join(dataset_R, by = "ind")
-dataset_cca<-select(dataset_cca,-area.y)
+dataset_cca<-dplyr::select(dataset_cca,-area.y)
 colnames(dataset_cca)[3] <- "area"
 dataset_cca<-as.data.frame(dataset_cca)
 
 dataset_cca<-as.data.frame(dataset_cca)
-
-#write.csv(dataset_cca, file = "dataset_cca.csv")
 ```
 
 #Generating figure of frugivore progenies accumulation per area (Figure S4)
@@ -2082,11 +2026,9 @@ require(CCA)
 library(candisc)
 library(readr)
 ```
-#Loading CCA data
-```{r}
-dataset_cca <- read_csv("dataset_cca.csv")
-dataset_cca<-dataset_cca[,-1]
 
+#Splitting CCA data
+```{r}
 properties_data<- dataset_cca [,c(4,7,8)] # I not included alpha because I have some infinite values.
 frugivores_data<-dataset_cca [,c(9,10,11,12,13)]
 ```
@@ -2111,6 +2053,7 @@ vif_func(in_frame= frugivores_data, thresh=2, trace=T)
 ##### http://www.statisticssolutions.com/table-of-critical-values-pearson-correlation/
 
 ```{r correlations, echo= TRUE, message= TRUE, warning= TRUE}
+library(CCA)
 correl<-matcor(properties_data, frugivores_data)
 
 img.matcor(correl)
