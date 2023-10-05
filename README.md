@@ -2,7 +2,7 @@
 
 This is the repository of the manuscript: 
 
-Animal-dispersed seeds and maternal progenies distribution patterns across colonization gradients
+Animal-mediated seed dispersal and the demo-genetic makeup across plant colonization gradients
 
 Jorge Isla, Miguel Jácome-Flores, Cristina Rigueiro, Juan Miguel Arroyo, Pedro Jordano & Cristina García
 
